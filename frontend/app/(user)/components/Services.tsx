@@ -1,5 +1,5 @@
 import { services } from '@/lib/data';
-import { ServiceCard } from '@/components/ServiceCard';
+import { ServiceCard } from './ServiceCard';
 
 export function Services() {
   return (

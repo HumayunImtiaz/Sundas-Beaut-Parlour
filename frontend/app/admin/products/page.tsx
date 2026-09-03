@@ -1,0 +1,19 @@
+'use client';
+
+import { FormEvent, useState } from 'react';
+import { homeRemedies as initialProducts, HomeRemedy } from '@/lib/homeRemedies';
+
+type ProductForm = Pick<HomeRemedy, 'name' | 'slug' | 'price' | 'description' | 'image' | 'availability'> & { isNew: boolean };
+const blank: ProductForm = { name: '', slug: '', price: '', description: '', image: '', availability: 'In stock', isNew: false };
+
+export default function AdminProductsPage() {
+  const [items, setItems] = useState(initialProducts);
+  const [form, setForm] = useState<ProductForm>(blank);
+  const [editing, setEditing] = useState<string | null>(null);
+  function save(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const product: HomeRemedy = { ...form, fullDescription: form.description }; // Temporary local mutation; replace with API calls when the backend is ready.
+    setItems((current) => editing ? current.map((item) => item.slug === editing ? product : item) : [...current, product]); setForm(blank); setEditing(null); }
+  function edit(item: HomeRemedy) { setEditing(item.slug); setForm({ name: item.name, slug: item.slug, price: item.price, description: item.description, image: item.image, availability: item.availability, isNew: Boolean(item.isNew) }); }
+  function update<K extends keyof ProductForm>(key: K, value: ProductForm[K]) { setForm((current) => ({ ...current, [key]: value })); }
+  return <section className="admin-page"><div className="admin-page-heading"><div><p className="eyebrow">Catalog</p><h1>Products</h1><p className="admin-description">Manage home remedies and their availability.</p></div><button className="admin-primary bg-gradient-gold" onClick={() => { setEditing(editing !== null ? null : ''); setForm(blank); }} type="button">{editing !== null ? 'Cancel' : 'Add product'} <span aria-hidden="true">+</span></button></div><div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Product</th><th>Price</th><th>Availability</th><th>New</th><th>Actions</th></tr></thead><tbody>{items.map((item) => <tr key={item.slug}><td><strong>{item.name}</strong><small>{item.description}</small></td><td>{item.price}</td><td><span className={item.availability === 'In stock' ? 'status status-good' : 'status'}>{item.availability}</span></td><td>{item.isNew ? 'Yes' : 'No'}</td><td><div className="admin-actions"><button onClick={() => edit(item)} type="button">Edit</button><button className="danger" onClick={() => setItems((current) => current.filter((entry) => entry.slug !== item.slug))} type="button">Delete</button></div></td></tr>)}</tbody></table></div>{editing !== null && <form className="admin-editor" onSubmit={save}><h2>{editing ? 'Edit product' : 'Add product'}</h2><Field label="Name" value={form.name} onChange={(value) => update('name', value)} /><Field label="Slug" value={form.slug} onChange={(value) => update('slug', value)} /><Field label="Price" value={form.price} onChange={(value) => update('price', value)} /><Field label="Description" value={form.description} onChange={(value) => update('description', value)} /><Field label="Image URL" value={form.image} onChange={(value) => update('image', value)} /><Field label="Availability" value={form.availability} onChange={(value) => update('availability', value)} /><label className="admin-check"><input checked={form.isNew} onChange={(event) => update('isNew', event.target.checked)} type="checkbox" /> Mark as new product</label><button className="admin-primary bg-gradient-gold" type="submit">Save product</button></form>}</section>;
+}
+function Field({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) { return <label>{label}<input required onChange={(event) => onChange(event.target.value)} value={value} /></label>; }

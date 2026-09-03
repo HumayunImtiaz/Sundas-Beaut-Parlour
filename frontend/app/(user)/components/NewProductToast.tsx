@@ -23,7 +23,7 @@ export function NewProductToast({ product }: NewProductToastProps) {
   if (!product || !visible) return null;
 
   return (
-    <aside className="new-product-toast" role="status" aria-live="polite">
+    <aside className="new-product-toast bg-gradient-gold" role="status" aria-live="polite">
       <span className="toast-icon" aria-hidden="true">✦</span>
       <div><p className="toast-label">New service</p><Link href={`/products/${product.slug}`}>{product.name} is now available <span aria-hidden="true">↗</span></Link></div>
       <button type="button" className="toast-close" onClick={() => setVisible(false)} aria-label="Close notification">×</button>
