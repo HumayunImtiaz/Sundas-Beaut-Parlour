@@ -35,7 +35,7 @@ export function OrderForm({ productName, quantity }: OrderFormProps) {
       <label>Quantity<input name="quantity" type="number" value={quantity} readOnly /></label>
       <label>Notes <span>(optional)</span><textarea name="notes" rows={2} /></label>
       <div className="payment-label"><span>Payment method</span><strong>Cash on Delivery</strong></div>
-      <button className="button button-gold" type="submit">Place Order <span aria-hidden="true">↗</span></button>
+      <button className="button button-gold bg-gradient-gold" type="submit">Place Order <span aria-hidden="true">↗</span></button>
     </form>
   );
 }

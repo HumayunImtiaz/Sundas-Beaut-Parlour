@@ -10,7 +10,7 @@ export function Hero() {
         <p className="eyebrow hero-eyebrow">A beauty ritual, made personal</p>
         <h1>Feel like<br /><em>yourself,</em> only brighter.</h1>
         <p className="hero-copy">Thoughtful hair, skin and makeup artistry for the moments you want to remember.</p>
-        <a className="button button-gold" href={getWhatsAppLink('Hello Sundas Beauty Parlour, I would like to book a visit.')}>Book on WhatsApp <span aria-hidden="true">↗</span></a>
+        <a className="button button-gold bg-gradient-gold" href={getWhatsAppLink('Hello Sundas Beauty Parlour, I would like to book a visit.')}>Book on WhatsApp <span aria-hidden="true">↗</span></a>
       </div>
       <div className="hero-note">Est. 2014 <span /> Lahore</div>
       <a className="scroll-cue" href="#about">Scroll to discover <span aria-hidden="true">↓</span></a>

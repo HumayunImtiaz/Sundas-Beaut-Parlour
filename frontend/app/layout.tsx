@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Cormorant_Garamond, Manrope } from 'next/font/google';
 import './globals.css';
+import { ThemeProvider } from './theme/ThemeProvider';
 
 const heading = Cormorant_Garamond({
   subsets: ['latin'],
@@ -22,7 +23,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body className={`${heading.variable} ${body.variable} antialiased`}>{children}</body>
+      <body className={`${heading.variable} ${body.variable} antialiased`}><ThemeProvider>{children}</ThemeProvider></body>
     </html>
   );
 }

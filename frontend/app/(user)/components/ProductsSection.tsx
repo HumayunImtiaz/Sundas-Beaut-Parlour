@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { homeRemedies } from '@/lib/homeRemedies';
-import { ProductCard } from '@/components/ProductCard';
+import { ProductCard } from './ProductCard';
 
 export function ProductsSection() {
   return (

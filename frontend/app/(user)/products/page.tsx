@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { Navbar } from '@/components/Navbar';
-import { ProductCard } from '@/components/ProductCard';
-import { WhatsAppButton } from '@/components/WhatsAppButton';
+import { Navbar } from '../components/Navbar';
+import { ProductCard } from '../components/ProductCard';
+import { WhatsAppButton } from '../components/WhatsAppButton';
 import { homeRemedies } from '@/lib/homeRemedies';
 
 export const metadata: Metadata = {
