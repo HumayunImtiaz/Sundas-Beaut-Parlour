@@ -79,4 +79,34 @@ h2 { font-size: clamp(2rem, 4vw, 2.5rem); letter-spacing: -.025em; line-height: 
 .button-gold:hover, .admin-primary:hover, .service-link:hover, .theme-toggle:hover { background: var(--gradient-gold); filter: brightness(1.06); }
 .new-product-toast { background: var(--gradient-gold); }
 
+@media (max-width: 800px) {
+	.navbar { gap: 10px; padding: 0 16px; }
+	.navbar > .theme-toggle { display: inline-flex; }
+	.navbar nav { background: var(--color-bg); border-top: 1px solid rgba(212,175,55,.2); display: none; flex-direction: column; gap: 0; left: 0; padding: 10px 20px 18px; position: absolute; right: 0; top: 82px; }
+	.navbar nav.mobile-menu-open { display: flex; }
+	.navbar nav a { border-bottom: 1px solid rgba(212,175,55,.12); padding: 13px 0; }
+	.nav-cta { margin-left: auto; white-space: nowrap; }
+	.nav-menu-toggle { align-items: center; background: none; border: 1px solid var(--color-gold); color: var(--color-gold-light); cursor: pointer; display: inline-flex; font-size: 20px; height: 34px; justify-content: center; line-height: 1; padding: 0; width: 34px; }
+	.admin-sidebar .admin-theme-toggle { display: inline-flex; height: 40px; min-width: 0; }
+	.hero-content h1, .products-header h1, .product-detail-copy h1 { overflow-wrap: anywhere; }
+	.button, .service-link, .admin-primary { max-width: 100%; }
+}
+
+.navbar > .theme-toggle { background: rgba(10,10,10,.72); border: 1px solid var(--color-gold); color: var(--color-gold-light); display: inline-flex; flex: 0 0 34px; position: relative; z-index: 1; }
+.navbar > .nav-menu-toggle { display: none; }
+
+@media (max-width: 800px) {
+	.navbar > .theme-toggle { display: inline-flex; }
+	.navbar > .nav-menu-toggle { display: inline-flex; }
+}
+
+@media (max-width: 450px) {
+	.wordmark { font-size: 20px; }
+	.wordmark span { font-size: 8px; }
+	.nav-cta { display: none; }
+	.hero-content h1 { font-size: clamp(2.65rem, 14vw, 3.25rem); }
+	.stats { gap: 16px; justify-content: space-between; }
+	.stats span { font-size: 9px; }
+}
+
 .admin-shell { font-size: 16px; }.admin-brand { font-size: 31px; font-weight: 700; }.admin-sidebar-label { font-size: 11px; font-weight: 700; }.admin-nav a { font-size: 15px; font-weight: 700; }.admin-logout { font-size: 14px; font-weight: 700; }.admin-page-heading h1 { font-weight: 700; }.admin-description { font-size: 15px; font-weight: 600; }.admin-date { font-size: 12px; font-weight: 700; }.admin-stat span { font-size: 12px; font-weight: 700; }.admin-stat strong { font-size: 62px; font-weight: 700; }.admin-stat small { font-size: 11px; font-weight: 600; }.admin-note h2 { font-weight: 700; }.admin-note > p:last-child { font-size: 15px; font-weight: 500; }.admin-table th { font-size: 12px; font-weight: 800; }.admin-table td { font-size: 15px; font-weight: 600; }.admin-table td strong, .admin-table td b { font-size: 16px; font-weight: 800; }.admin-table td small { font-size: 12px; font-weight: 600; }.admin-actions button { font-size: 13px; font-weight: 800; }.admin-primary { font-size: 13px; font-weight: 800; }.admin-editor h2 { font-weight: 700; }.admin-editor label, .admin-form label { font-size: 12px; font-weight: 800; }.admin-editor input, .admin-form input { font-size: 15px; font-weight: 600; }.status, .status-select { font-size: 12px; font-weight: 800; }.admin-theme-toggle span { font-size: 11px; font-weight: 700; }
