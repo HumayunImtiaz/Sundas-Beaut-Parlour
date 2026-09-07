@@ -6,19 +6,21 @@ import { NewProductToast } from './components/NewProductToast';
 import { ProductsSection } from './components/ProductsSection';
 import { Services } from './components/Services';
 import { WhatsAppButton } from './components/WhatsAppButton';
-import { homeRemedies } from '@/lib/homeRemedies';
+import { getProducts, getServices } from '@/lib/api';
 
-export default function Home() {
+export default async function Home() {
+  const [services, products] = await Promise.all([getServices(), getProducts()]);
+  const newProduct = products.find((product) => product.isNew);
   return (
     <main>
       <Navbar />
       <Hero />
       <About />
-      <Services />
-      <ProductsSection />
+      <Services services={services} />
+      <ProductsSection products={products.slice(0, 3)} />
       <Location />
       <WhatsAppButton />
-      <NewProductToast product={homeRemedies.find((product) => product.isNew)} />
+      <NewProductToast product={newProduct} />
     </main>
   );
 }

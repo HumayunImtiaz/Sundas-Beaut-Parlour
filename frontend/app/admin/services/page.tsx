@@ -1,29 +1,24 @@
 'use client';
 
-import { FormEvent, useState } from 'react';
-import { services as initialServices, Service } from '@/lib/data';
+import { ChangeEvent, FormEvent, useEffect, useState } from 'react';
+import { apiRequest, ApiError, Service } from '@/lib/api';
+import { clearAdminToken, getAdminToken } from '@/lib/adminAuth';
+import { useRouter } from 'next/navigation';
 
-type ServiceForm = Pick<Service, 'name' | 'price' | 'description' | 'image'>;
-const blank: ServiceForm = { name: '', price: '', description: '', image: '' };
+type Form = { name: string; price: string; description: string; image: File | null; imagePreview: string };
+const blank: Form = { name: '', price: '', description: '', image: null, imagePreview: '' };
 
 export default function AdminServicesPage() {
-  const [items, setItems] = useState(initialServices);
-  const [form, setForm] = useState<ServiceForm>(blank);
-  const [editing, setEditing] = useState<string | null>(null);
-
-  function save(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const slug = editing ?? `${form.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}-${Date.now()}`;
-    const service: Service = { ...form, slug, fullDescription: form.description, category: 'Service' };
-    // Temporary local mutation. Replace with POST/PATCH/DELETE API calls when the backend is ready.
-    setItems((current) => editing ? current.map((item) => item.slug === editing ? { ...item, ...service } : item) : [...current, service]);
-    setForm(blank); setEditing(null);
-  }
-  function edit(item: Service) { setEditing(item.slug); setForm({ name: item.name, price: item.price, description: item.description, image: item.image }); }
-
-  return <section className="admin-page"><AdminHeader title="Services" description="Manage the treatments shown on your public menu." action={editing !== null ? 'Cancel' : 'Add service'} onAction={() => { setEditing(editing !== null ? null : ''); setForm(blank); }} /><div className="admin-table-wrap"><table className="admin-table services-table"><thead><tr><th>Name</th><th>Price</th><th>Description</th><th>Actions</th></tr></thead><tbody>{items.map((item) => <tr key={item.slug}><td><strong>{item.name}</strong><small>{item.category}</small></td><td><b className="admin-price">{item.price}</b></td><td>{item.description}</td><td><div className="admin-actions"><button onClick={() => edit(item)} type="button">Edit</button><button className="danger" onClick={() => setItems((current) => current.filter((entry) => entry.slug !== item.slug))} type="button">Delete</button></div></td></tr>)}</tbody></table></div>{editing !== null && <AdminEditor title={editing ? 'Edit service' : 'Add service'} onSubmit={save}><Field label="Name" value={form.name} onChange={(value) => setForm({ ...form, name: value })} /><Field label="Price" value={form.price} onChange={(value) => setForm({ ...form, price: value })} /><Field label="Short description" value={form.description} onChange={(value) => setForm({ ...form, description: value })} /><Field label="Image URL" value={form.image} onChange={(value) => setForm({ ...form, image: value })} /><button className="admin-primary bg-gradient-gold" type="submit">Save service</button></AdminEditor>}</section>;
+  const router = useRouter();
+  const [items, setItems] = useState<Service[]>([]); const [form, setForm] = useState(blank); const [editing, setEditing] = useState<string | null>(null); const [loading, setLoading] = useState(true); const [saving, setSaving] = useState(false); const [error, setError] = useState('');
+  function handleError(requestError: unknown) { if (requestError instanceof ApiError && requestError.statusCode === 401) { clearAdminToken(); router.replace('/admin/login'); return; } setError(requestError instanceof ApiError ? requestError.message : 'Something went wrong. Please try again.'); }
+  async function load() { try { setItems(await apiRequest<Service[]>('/services')); } catch (requestError) { handleError(requestError); } finally { setLoading(false); } }
+  useEffect(() => { void load(); }, []);
+  function selectImage(event: ChangeEvent<HTMLInputElement>) { const image = event.target.files?.[0] ?? null; setForm((current) => ({ ...current, image, imagePreview: image ? URL.createObjectURL(image) : current.imagePreview })); }
+  function edit(item: Service) { setEditing(item._id); setForm({ name: item.name, price: String(item.price), description: item.description, image: null, imagePreview: item.image?.url ?? '' }); }
+  async function save(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const token = getAdminToken(); if (!token) return router.replace('/admin/login'); if (!editing && !form.image) return setError('Please select a service image.'); setSaving(true); setError(''); try { const body = new FormData(); body.append('name', form.name); body.append('price', form.price); body.append('description', form.description); if (form.image) body.append('image', form.image); await apiRequest(editing ? `/services/${editing}` : '/services', { method: editing ? 'PUT' : 'POST', body }, token); setForm(blank); setEditing(null); await load(); } catch (requestError) { handleError(requestError); } finally { setSaving(false); } }
+  async function remove(id: string) { const token = getAdminToken(); if (!token) return router.replace('/admin/login'); try { await apiRequest(`/services/${id}`, { method: 'DELETE' }, token); await load(); } catch (requestError) { handleError(requestError); } }
+  return <section className="admin-page"><AdminHeader title="Services" description="Manage the treatments shown on your public menu." action={editing !== null ? 'Cancel' : 'Add service'} onAction={() => { setEditing(editing !== null ? null : ''); setForm(blank); }} />{error && <p className="admin-error" role="alert">{error}</p>}{loading ? <div className="admin-loading">Loading services...</div> : <div className="admin-table-wrap"><table className="admin-table services-table"><thead><tr><th>Name</th><th>Price</th><th>Description</th><th>Actions</th></tr></thead><tbody>{items.map((item) => <tr key={item._id}><td><strong>{item.name}</strong><small>Service</small></td><td><b className="admin-price">PKR {item.price.toLocaleString()}</b></td><td>{item.description}</td><td><div className="admin-actions"><button onClick={() => edit(item)} type="button">Edit</button><button className="danger" onClick={() => void remove(item._id)} type="button">Delete</button></div></td></tr>)}</tbody></table></div>}{editing !== null && <form className="admin-editor" onSubmit={save}><h2>{editing ? 'Edit service' : 'Add service'}</h2><Field label="Name" value={form.name} onChange={(value) => setForm({ ...form, name: value })} /><Field label="Price" value={form.price} onChange={(value) => setForm({ ...form, price: value })} /><Field label="Short description" value={form.description} onChange={(value) => setForm({ ...form, description: value })} /><label>Image<input accept="image/jpeg,image/png,image/webp" onChange={selectImage} required={!editing} type="file" /></label>{form.imagePreview && <img alt="Selected service preview" className="admin-image-preview" src={form.imagePreview} />}<button className="admin-primary bg-gradient-gold" disabled={saving} type="submit">{saving ? 'Uploading...' : 'Save service'}</button></form>}</section>;
 }
-
-  function AdminHeader({ title, description, action, onAction }: { title: string; description: string; action: string; onAction: () => void }) { return <div className="admin-page-heading"><div><p className="eyebrow">Catalog</p><h1>{title}</h1><p className="admin-description">{description}</p></div><button className="admin-primary bg-gradient-gold" onClick={onAction} type="button">{action} <span aria-hidden="true">+</span></button></div>; }
-  function AdminEditor({ title, onSubmit, children }: { title: string; onSubmit: (event: FormEvent<HTMLFormElement>) => void; children: React.ReactNode }) { return <form className="admin-editor" onSubmit={onSubmit}><h2>{title}</h2>{children}</form>; }
+function AdminHeader({ title, description, action, onAction }: { title: string; description: string; action: string; onAction: () => void }) { return <div className="admin-page-heading"><div><p className="eyebrow">Catalog</p><h1>{title}</h1><p className="admin-description">{description}</p></div><button className="admin-primary bg-gradient-gold" onClick={onAction} type="button">{action} <span aria-hidden="true">+</span></button></div>; }
 function Field({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) { return <label>{label}<input required onChange={(event) => onChange(event.target.value)} value={value} /></label>; }

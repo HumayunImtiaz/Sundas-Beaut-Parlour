@@ -1,0 +1,11 @@
+import { Router } from 'express';
+import authRoutes from './authRoutes';
+import serviceRoutes from './serviceRoutes';
+import productRoutes from './productRoutes';
+import orderRoutes from './orderRoutes';
+const router = Router();
+router.use('/auth', authRoutes);
+router.use('/services', serviceRoutes);
+router.use('/products', productRoutes);
+router.use('/orders', orderRoutes);
+export default router;

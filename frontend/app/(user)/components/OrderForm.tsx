@@ -1,19 +1,23 @@
 'use client';
 
 import { FormEvent, useState } from 'react';
+import { apiRequest, ApiError } from '@/lib/api';
 
 type OrderFormProps = {
+  productId: string;
   productName: string;
   quantity: number;
 };
 
 type FormErrors = Partial<Record<'name' | 'phone' | 'address', string>>;
 
-export function OrderForm({ productName, quantity }: OrderFormProps) {
+export function OrderForm({ productId, productName, quantity }: OrderFormProps) {
   const [submitted, setSubmitted] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
+  const [requestError, setRequestError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  function handleOrderSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleOrderSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
     const nextErrors: FormErrors = {};
@@ -21,7 +25,17 @@ export function OrderForm({ productName, quantity }: OrderFormProps) {
     if (!String(formData.get('phone')).trim()) nextErrors.phone = 'Please enter your phone number.';
     if (!String(formData.get('address')).trim()) nextErrors.address = 'Please enter your delivery address.';
     setErrors(nextErrors);
-    if (Object.keys(nextErrors).length === 0) setSubmitted(true);
+    if (Object.keys(nextErrors).length > 0) return;
+    setRequestError('');
+    setIsSubmitting(true);
+    try {
+      await apiRequest('/orders', { method: 'POST', body: JSON.stringify({ customerName: formData.get('name'), phone: formData.get('phone'), address: formData.get('address'), productId, quantity, notes: formData.get('notes'), paymentMethod: 'Cash on Delivery' }) });
+      setSubmitted(true);
+    } catch (error) {
+      setRequestError(error instanceof ApiError ? error.message : 'Something went wrong. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   if (submitted) return <div className="order-success" role="status"><span aria-hidden="true">✦</span><h2>Order received!</h2><p>We&apos;ll contact you shortly to confirm.</p></div>;
@@ -35,7 +49,8 @@ export function OrderForm({ productName, quantity }: OrderFormProps) {
       <label>Quantity<input name="quantity" type="number" value={quantity} readOnly /></label>
       <label>Notes <span>(optional)</span><textarea name="notes" rows={2} /></label>
       <div className="payment-label"><span>Payment method</span><strong>Cash on Delivery</strong></div>
-      <button className="button button-gold bg-gradient-gold" type="submit">Place Order <span aria-hidden="true">↗</span></button>
+      {requestError && <p className="admin-error" role="alert">{requestError}</p>}
+      <button className="button button-gold bg-gradient-gold" disabled={isSubmitting} type="submit">{isSubmitting ? 'Submitting...' : 'Place Order'} <span aria-hidden="true">↗</span></button>
     </form>
   );
 }

@@ -1,5 +1,5 @@
 import Image from 'next/image';
-import { getWhatsAppLink } from '@/lib/data';
+import { getWhatsAppLink } from '@/lib/site';
 
 export function Hero() {
   return (

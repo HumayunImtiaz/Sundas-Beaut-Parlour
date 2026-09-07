@@ -1,0 +1,7 @@
+import type { Request, Response } from 'express';
+import { Order } from '../models/Order';
+import { Product } from '../models/Product';
+import { sendSuccess } from '../types/api';
+export async function createOrder(request: Request, response: Response) { const { customerName, phone, address, productId, quantity, notes } = request.body; const product = await Product.findById(productId); if (!product) throw Object.assign(new Error('Product not found'), { statusCode: 404 }); if (product.stock < quantity) throw Object.assign(new Error('Insufficient product stock'), { statusCode: 400 }); const order = await Order.create({ customerName, phone, address, productId, quantity, notes }); await Product.findByIdAndUpdate(product.id, { $inc: { stock: -quantity } }); return sendSuccess(response, 201, 'Order submitted successfully', order); }
+export async function listOrders(_request: Request, response: Response) { return sendSuccess(response, 200, 'Orders fetched successfully', await Order.find().populate('productId').sort({ createdAt: -1 })); }
+export async function updateOrder(request: Request, response: Response) { const order = await Order.findByIdAndUpdate(request.params.id, { status: request.body.status }, { new: true, runValidators: true }); if (!order) throw Object.assign(new Error('Order not found'), { statusCode: 404 }); return sendSuccess(response, 200, 'Order status updated successfully', order); }

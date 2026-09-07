@@ -3,14 +3,15 @@ import Link from 'next/link';
 import { Navbar } from '../components/Navbar';
 import { ProductCard } from '../components/ProductCard';
 import { WhatsAppButton } from '../components/WhatsAppButton';
-import { homeRemedies } from '@/lib/homeRemedies';
+import { getProducts } from '@/lib/api';
 
 export const metadata: Metadata = {
   title: 'Products | Sundas Beauty Parlour',
   description: 'Shop trusted beauty essentials from Sundas Beauty Parlour.'
 };
 
-export default function ProductsPage() {
+export default async function ProductsPage() {
+  const products = await getProducts();
   return (
     <main className="products-page">
       <Navbar />
@@ -21,7 +22,7 @@ export default function ProductsPage() {
         <p className="section-intro">Explore our collection of trusted beauty essentials, selected with the same care as every salon ritual.</p>
       </section>
       <section className="products-list section-shell">
-        <div className="service-grid">{homeRemedies.map((product, index) => <ProductCard product={product} index={index} key={product.slug} />)}</div>
+        <div className="service-grid">{products.map((product, index) => <ProductCard product={product} index={index} key={product._id} />)}</div>
       </section>
       <WhatsAppButton />
     </main>

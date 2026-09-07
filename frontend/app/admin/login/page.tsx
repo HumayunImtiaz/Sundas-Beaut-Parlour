@@ -2,24 +2,27 @@
 
 import { FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
-
-// Temporary mock credential. Replace with real backend authentication when the API is ready.
-const MOCK_ADMIN = { email: 'admin@sundasparlour.com', password: 'sundas123' };
+import { apiRequest, ApiError } from '@/lib/api';
+import { setAdminToken } from '@/lib/adminAuth';
 
 export default function AdminLoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (email.trim().toLowerCase() !== MOCK_ADMIN.email || password !== MOCK_ADMIN.password) {
-      setError('The email or password is not correct.');
-      return;
-    }
-    window.localStorage.setItem('isAdminLoggedIn', 'true');
-    router.replace('/admin/dashboard');
+    setError('');
+    setIsSubmitting(true);
+    try {
+      const result = await apiRequest<{ token: string }>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+      setAdminToken(result.token);
+      router.replace('/admin/dashboard');
+    } catch (requestError) {
+      setError(requestError instanceof ApiError ? requestError.message : 'Something went wrong. Please try again.');
+    } finally { setIsSubmitting(false); }
   }
 
   return (
@@ -32,7 +35,7 @@ export default function AdminLoginPage() {
           <label>Email<input autoComplete="email" onChange={(event) => setEmail(event.target.value)} required type="email" value={email} /></label>
           <label>Password<input autoComplete="current-password" onChange={(event) => setPassword(event.target.value)} required type="password" value={password} /></label>
           {error && <p className="admin-error" role="alert">{error}</p>}
-          <button className="admin-primary bg-gradient-gold" type="submit">Login <span aria-hidden="true">↗</span></button>
+          <button className="admin-primary bg-gradient-gold" disabled={isSubmitting} type="submit">{isSubmitting ? 'Signing in...' : 'Login'} <span aria-hidden="true">↗</span></button>
         </form>
       </div>
     </main>

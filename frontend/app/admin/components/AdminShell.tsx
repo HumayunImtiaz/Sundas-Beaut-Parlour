@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { useTheme } from '../../theme/ThemeProvider';
+import { clearAdminToken, getAdminToken } from '@/lib/adminAuth';
 
 const navigation = [
   { label: 'Dashboard', href: '/admin/dashboard' },
@@ -24,12 +25,12 @@ export function AdminShell({ children }: Readonly<{ children: React.ReactNode }>
       setReady(true);
       return;
     }
-    if (window.localStorage.getItem('isAdminLoggedIn') !== 'true') router.replace('/admin/login');
+    if (!getAdminToken()) router.replace('/admin/login');
     else setReady(true);
   }, [isLogin, router]);
 
   function logout() {
-    window.localStorage.removeItem('isAdminLoggedIn');
+    clearAdminToken();
     router.replace('/admin/login');
   }
 
