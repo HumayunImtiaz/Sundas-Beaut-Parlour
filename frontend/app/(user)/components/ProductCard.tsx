@@ -1,9 +1,9 @@
 import Image from 'next/image';
 import Link from 'next/link';
-import type { HomeRemedy } from '@/lib/homeRemedies';
+import type { Product } from '@/lib/api';
 
 type ProductCardProps = {
-  product: HomeRemedy;
+  product: Product;
   index?: number;
 };
 
@@ -12,9 +12,9 @@ export function ProductCard({ product, index = 0 }: ProductCardProps) {
     <article className="service-card reveal" style={{ '--delay': `${index * 90}ms` } as React.CSSProperties}>
       <Link className="product-card-link" href={`/products/${product.slug}`} aria-label={`View details for ${product.name}`}>
         <div className="service-image-wrap">
-          <Image className="service-image" src={product.image} alt={product.name} fill sizes="(max-width: 640px) 100vw, (max-width: 1000px) 50vw, 33vw" />
+          {product.image?.url ? <Image className="service-image" src={product.image.url} alt={product.name} fill unoptimized sizes="(max-width: 640px) 100vw, (max-width: 1000px) 50vw, 33vw" /> : <div className="service-image" aria-hidden="true" />}
         </div>
-        <div className="service-meta"><span>Product</span><span>{product.price}</span></div>
+        <div className="service-meta"><span>Product</span><span>PKR {product.price.toLocaleString()}</span></div>
         <h3>{product.name}</h3>
         <p>{product.description}</p>
       </Link>

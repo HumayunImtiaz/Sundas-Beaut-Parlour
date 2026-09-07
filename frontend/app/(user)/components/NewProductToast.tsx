@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import type { Product } from '@/lib/api';
 
 type NewProductToastProps = {
-  product?: { name: string; slug: string };
+  product?: Product;
 };
 
 export function NewProductToast({ product }: NewProductToastProps) {
@@ -25,7 +26,7 @@ export function NewProductToast({ product }: NewProductToastProps) {
   return (
     <aside className="new-product-toast bg-gradient-gold" role="status" aria-live="polite">
       <span className="toast-icon" aria-hidden="true">✦</span>
-      <div><p className="toast-label">New service</p><Link href={`/products/${product.slug}`}>{product.name} is now available <span aria-hidden="true">↗</span></Link></div>
+      <div><p className="toast-label">New product</p><Link href={`/products/${product.slug}`}>{product.name} is now available <span aria-hidden="true">↗</span></Link></div>
       <button type="button" className="toast-close" onClick={() => setVisible(false)} aria-label="Close notification">×</button>
     </aside>
   );

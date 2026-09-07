@@ -1,0 +1,15 @@
+import { Router } from 'express';
+import { createProduct, deleteProduct, getProduct, listProducts, updateProduct } from '../controllers/productController';
+import { authMiddleware } from '../middlewares/authMiddleware';
+import { validationHandler } from '../middlewares/validationHandler';
+import { asyncHandler } from '../utils/asyncHandler';
+import { idParam, slugParam } from '../validators/common';
+import { productValidation } from '../validators/productValidators';
+import { uploadImage } from '../middlewares/upload';
+const router = Router();
+router.get('/', asyncHandler(listProducts));
+router.get('/:slug', slugParam, validationHandler, asyncHandler(getProduct));
+router.post('/', authMiddleware, uploadImage, productValidation, validationHandler, asyncHandler(createProduct));
+router.put('/:id', authMiddleware, uploadImage, idParam, productValidation, validationHandler, asyncHandler(updateProduct));
+router.delete('/:id', authMiddleware, idParam, validationHandler, asyncHandler(deleteProduct));
+export default router;

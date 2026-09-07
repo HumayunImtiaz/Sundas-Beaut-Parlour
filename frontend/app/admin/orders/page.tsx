@@ -1,13 +1,15 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { apiRequest, ApiError, Order } from '@/lib/api';
+import { clearAdminToken, getAdminToken } from '@/lib/adminAuth';
+import { useRouter } from 'next/navigation';
 
-type OrderStatus = 'Pending' | 'Confirmed' | 'Delivered';
-type Order = { id: number; name: string; phone: string; address: string; product: string; quantity: number; notes: string; status: OrderStatus };
-const initialOrders: Order[] = [
-  { id: 1, name: 'Ayesha Khan', phone: '0300 1234567', address: 'Gulberg, Lahore', product: 'Herbal Hair Oil', quantity: 2, notes: 'Please call before delivery.', status: 'Pending' },
-  { id: 2, name: 'Maham Ali', phone: '0312 7654321', address: 'DHA Phase 5, Lahore', product: 'Ubtan', quantity: 1, notes: '', status: 'Confirmed' },
-  { id: 3, name: 'Sara Ahmed', phone: '0333 9876543', address: 'Model Town, Lahore', product: 'Face Whitening Cream', quantity: 1, notes: 'Leave at reception.', status: 'Delivered' }
-];
-
-export default function AdminOrdersPage() { const [orders, setOrders] = useState(initialOrders); return <section className="admin-page"><div className="admin-page-heading"><div><p className="eyebrow">Sales</p><h1>Orders</h1><p className="admin-description">Cash on Delivery orders from your product menu.</p></div></div><div className="admin-table-wrap"><table className="admin-table orders-table"><thead><tr><th>Customer</th><th>Product</th><th>Address</th><th>Notes</th><th>Status</th></tr></thead><tbody>{orders.map((order) => <tr key={order.id}><td><strong>{order.name}</strong><small>{order.phone}</small></td><td><b className="admin-order-product">{order.product}</b><small>Quantity: {order.quantity}</small></td><td>{order.address}</td><td>{order.notes || '—'}</td><td><select aria-label={`Status for ${order.name}`} className={`status-select status-${order.status.toLowerCase()}`} onChange={(event) => setOrders((current) => current.map((item) => item.id === order.id ? { ...item, status: event.target.value as OrderStatus } : item))} value={order.status}><option>Pending</option><option>Confirmed</option><option>Delivered</option></select></td></tr>)}</tbody></table></div></section>; }
+export default function AdminOrdersPage() {
+  const router = useRouter(); const [orders, setOrders] = useState<Order[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState('');
+  function handleError(requestError: unknown) { if (requestError instanceof ApiError && requestError.statusCode === 401) { clearAdminToken(); router.replace('/admin/login'); return; } setError(requestError instanceof ApiError ? requestError.message : 'Something went wrong. Please try again.'); }
+  async function load() { const token = getAdminToken(); if (!token) return router.replace('/admin/login'); try { setOrders(await apiRequest<Order[]>('/orders', {}, token)); } catch (requestError) { handleError(requestError); } finally { setLoading(false); } }
+  useEffect(() => { void load(); }, []);
+  async function updateStatus(id: string, status: Order['status']) { const token = getAdminToken(); if (!token) return router.replace('/admin/login'); try { await apiRequest(`/orders/${id}`, { method: 'PUT', body: JSON.stringify({ status }) }, token); await load(); } catch (requestError) { handleError(requestError); } }
+  return <section className="admin-page"><div className="admin-page-heading"><div><p className="eyebrow">Sales</p><h1>Orders</h1><p className="admin-description">Cash on Delivery orders from your product menu.</p></div></div>{error && <p className="admin-error" role="alert">{error}</p>}{loading ? <div className="admin-loading">Loading orders...</div> : <div className="admin-table-wrap"><table className="admin-table orders-table"><thead><tr><th>Customer</th><th>Product</th><th>Address</th><th>Notes</th><th>Status</th></tr></thead><tbody>{orders.map((order) => { const product = typeof order.productId === 'string' ? order.productId : order.productId.name; return <tr key={order._id}><td><strong>{order.customerName}</strong><small>{order.phone}</small></td><td><b className="admin-order-product">{product}</b><small>Quantity: {order.quantity}</small></td><td>{order.address}</td><td>{order.notes || '—'}</td><td><select aria-label={`Status for ${order.customerName}`} className={`status-select status-${order.status.toLowerCase()}`} onChange={(event) => void updateStatus(order._id, event.target.value as Order['status'])} value={order.status}><option>Pending</option><option>Confirmed</option><option>Delivered</option></select></td></tr>; })}</tbody></table></div>}</section>;
+}
