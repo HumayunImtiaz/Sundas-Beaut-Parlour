@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 };
 
 export default async function ProductsPage() {
-  const products = await getProducts();
+  const products = await getProducts().catch(() => []);
   return (
     <main className="products-page">
       <Navbar />

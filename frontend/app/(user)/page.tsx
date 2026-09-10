@@ -9,7 +9,10 @@ import { WhatsAppButton } from './components/WhatsAppButton';
 import { getProducts, getServices } from '@/lib/api';
 
 export default async function Home() {
-  const [services, products] = await Promise.all([getServices(), getProducts()]);
+  const [services, products] = await Promise.all([
+    getServices().catch(() => []),
+    getProducts().catch(() => [])
+  ]);
   const newProduct = products.find((product) => product.isNew);
   return (
     <main>

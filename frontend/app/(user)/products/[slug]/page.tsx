@@ -20,7 +20,24 @@ export async function generateMetadata({ params }: ProductPageProps): Promise<Me
 
 export default async function ProductDetailPage({ params }: ProductPageProps) {
   let product;
-  try { product = await getProduct(params.slug); } catch (error) { if (error instanceof ApiError && error.statusCode === 404) notFound(); throw error; }
+  try { product = await getProduct(params.slug); } catch (error) { if (error instanceof ApiError && error.statusCode === 404) notFound(); product = null; }
+
+  if (!product) {
+    return (
+      <main className="product-detail-page">
+        <Navbar />
+        <section className="product-detail section-shell">
+          <Link className="back-link" href="/products">← Back to all products</Link>
+          <div className="product-detail-copy reveal">
+            <p className="eyebrow">Coming soon</p>
+            <h1>Our product collection<br /><em>is being prepared.</em></h1>
+            <p className="product-detail-description">Products will appear here once the online collection is connected.</p>
+          </div>
+        </section>
+        <WhatsAppButton />
+      </main>
+    );
+  }
 
   return (
     <main className="product-detail-page">
