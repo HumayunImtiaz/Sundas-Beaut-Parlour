@@ -1,4 +1,4 @@
-import type { Service } from '@/lib/api';
+import type { Service } from '@/lib/content';
 import { ServiceCard } from './ServiceCard';
 
 export function Services({ services }: { services: Service[] }) {

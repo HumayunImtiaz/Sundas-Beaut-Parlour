@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import type { Product } from '@/lib/api';
+import type { Product } from '@/lib/content';
 
 type NewProductToastProps = {
   product?: Product;

@@ -1,2 +1,0 @@
-import { body } from 'express-validator';
-export const loginValidation = [body('email').isEmail().normalizeEmail().withMessage('Valid email is required'), body('password').isString().isLength({ min: 8, max: 128 }).withMessage('Password must be 8-128 characters')];
