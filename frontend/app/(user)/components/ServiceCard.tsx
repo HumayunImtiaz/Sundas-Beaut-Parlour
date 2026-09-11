@@ -1,5 +1,5 @@
 import Image from 'next/image';
-import type { Service } from '@/lib/api';
+import type { Service } from '@/lib/content';
 import { getWhatsAppLink } from '@/lib/site';
 
 type ServiceCardProps = {

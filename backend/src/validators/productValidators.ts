@@ -1,3 +1,0 @@
-import { body } from 'express-validator';
-import { nameField, priceField } from './common';
-export const productValidation = [nameField, body('slug').isSlug().withMessage('Valid slug is required'), body('description').isString().trim().isLength({ min: 2, max: 1000 }).withMessage('Description is required'), body('fullDescription').isString().trim().isLength({ min: 2, max: 5000 }).withMessage('Full description is required'), priceField, body('stock').isInt({ min: 0 }).withMessage('Stock must be a non-negative integer'), body('isNew').optional().isBoolean().withMessage('isNew must be boolean')];

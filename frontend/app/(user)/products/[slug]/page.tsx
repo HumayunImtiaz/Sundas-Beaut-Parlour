@@ -5,39 +5,22 @@ import { notFound } from 'next/navigation';
 import { Navbar } from '../../components/Navbar';
 import { ProductDetailOrder } from '../../components/ProductDetail';
 import { WhatsAppButton } from '../../components/WhatsAppButton';
-import { ApiError, getProduct } from '@/lib/api';
+import { getProduct, products } from '@/lib/content';
 
 type ProductPageProps = { params: { slug: string } };
 
-// Products are managed by the admin panel, so dynamic rendering keeps this page in sync with MongoDB.
-export const dynamic = 'force-dynamic';
+export function generateStaticParams() {
+  return products.map((product) => ({ slug: product.slug }));
+}
 
 export async function generateMetadata({ params }: ProductPageProps): Promise<Metadata> {
-  let product;
-  try { product = await getProduct(params.slug); } catch { product = null; }
+  const product = getProduct(params.slug);
   return { title: product ? `${product.name} | Sundas Beauty Parlour` : 'Product not found | Sundas Beauty Parlour' };
 }
 
-export default async function ProductDetailPage({ params }: ProductPageProps) {
-  let product;
-  try { product = await getProduct(params.slug); } catch (error) { if (error instanceof ApiError && error.statusCode === 404) notFound(); product = null; }
-
-  if (!product) {
-    return (
-      <main className="product-detail-page">
-        <Navbar />
-        <section className="product-detail section-shell">
-          <Link className="back-link" href="/products">← Back to all products</Link>
-          <div className="product-detail-copy reveal">
-            <p className="eyebrow">Coming soon</p>
-            <h1>Our product collection<br /><em>is being prepared.</em></h1>
-            <p className="product-detail-description">Products will appear here once the online collection is connected.</p>
-          </div>
-        </section>
-        <WhatsAppButton />
-      </main>
-    );
-  }
+export default function ProductDetailPage({ params }: ProductPageProps) {
+  const product = getProduct(params.slug);
+  if (!product) notFound();
 
   return (
     <main className="product-detail-page">
@@ -51,7 +34,7 @@ export default async function ProductDetailPage({ params }: ProductPageProps) {
             <h1>{product.name}</h1>
             <p className="product-detail-description">{product.fullDescription}</p>
             <p className="product-detail-price">PKR {product.price.toLocaleString()}</p>
-            <ProductDetailOrder productId={product._id} productName={product.name} />
+            <ProductDetailOrder productName={product.name} />
           </div>
         </div>
       </section>
