@@ -15,7 +15,7 @@ export function generateStaticParams() {
 
 export async function generateMetadata({ params }: ProductPageProps): Promise<Metadata> {
   const product = getProduct(params.slug);
-  return { title: product ? `${product.name} | Sundas Beauty Parlour` : 'Product not found | Sundas Beauty Parlour' };
+  return { title: product ? `${product.name} | Sundas Beauty Parlour` : 'Product is not found | Sundas Beauty Parlour' };
 }
 
 export default function ProductDetailPage({ params }: ProductPageProps) {
