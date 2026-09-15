@@ -6,13 +6,9 @@ import { NewProductToast } from './components/NewProductToast';
 import { ProductsSection } from './components/ProductsSection';
 import { Services } from './components/Services';
 import { WhatsAppButton } from './components/WhatsAppButton';
-import { getProducts, getServices } from '@/lib/api';
+import { products, services } from '@/lib/content';
 
-export default async function Home() {
-  const [services, products] = await Promise.all([
-    getServices().catch(() => []),
-    getProducts().catch(() => [])
-  ]);
+export default function Home() {
   const newProduct = products.find((product) => product.isNew);
   return (
     <main>

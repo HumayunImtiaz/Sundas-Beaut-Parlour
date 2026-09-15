@@ -3,15 +3,14 @@ import Link from 'next/link';
 import { Navbar } from '../components/Navbar';
 import { ProductCard } from '../components/ProductCard';
 import { WhatsAppButton } from '../components/WhatsAppButton';
-import { getProducts } from '@/lib/api';
+import { products } from '@/lib/content';
 
 export const metadata: Metadata = {
   title: 'Products | Sundas Beauty Parlour',
   description: 'Shop trusted beauty essentials from Sundas Beauty Parlour.'
 };
 
-export default async function ProductsPage() {
-  const products = await getProducts().catch(() => []);
+export default function ProductsPage() {
   return (
     <main className="products-page">
       <Navbar />
