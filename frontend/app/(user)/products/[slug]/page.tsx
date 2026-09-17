@@ -5,21 +5,19 @@ import { notFound } from 'next/navigation';
 import { Navbar } from '../../components/Navbar';
 import { ProductDetailOrder } from '../../components/ProductDetail';
 import { WhatsAppButton } from '../../components/WhatsAppButton';
-import { getProduct, products } from '@/lib/content';
+import { getProductByHandle } from '@/lib/medusa';
 
 type ProductPageProps = { params: { slug: string } };
 
-export function generateStaticParams() {
-  return products.map((product) => ({ slug: product.slug }));
-}
+export const dynamic = 'force-dynamic';
 
 export async function generateMetadata({ params }: ProductPageProps): Promise<Metadata> {
-  const product = getProduct(params.slug);
+  const product = await getProductByHandle(params.slug);
   return { title: product ? `${product.name} | Sundas Beauty Parlour` : 'Product is not found | Sundas Beauty Parlour' };
 }
 
-export default function ProductDetailPage({ params }: ProductPageProps) {
-  const product = getProduct(params.slug);
+export default async function ProductDetailPage({ params }: ProductPageProps) {
+  const product = await getProductByHandle(params.slug);
   if (!product) notFound();
 
   return (
@@ -33,8 +31,7 @@ export default function ProductDetailPage({ params }: ProductPageProps) {
             <p className="eyebrow">Home remedy</p>
             <h1>{product.name}</h1>
             <p className="product-detail-description">{product.fullDescription}</p>
-            <p className="product-detail-price">PKR {product.price.toLocaleString()}</p>
-            <ProductDetailOrder productName={product.name} />
+            <ProductDetailOrder variants={product.variants ?? []} />
           </div>
         </div>
       </section>

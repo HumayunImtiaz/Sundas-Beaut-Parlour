@@ -19,7 +19,15 @@ export type Product = {
   image?: ImageAsset;
   stock: number;
   isNew: boolean;
+  variants?: ProductVariant[];
   createdAt?: string;
+};
+
+export type ProductVariant = {
+  id: string;
+  title: string;
+  options: string[];
+  price: number;
 };
 
 export const services: Service[] = [

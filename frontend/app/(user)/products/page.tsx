@@ -3,14 +3,18 @@ import Link from 'next/link';
 import { Navbar } from '../components/Navbar';
 import { ProductCard } from '../components/ProductCard';
 import { WhatsAppButton } from '../components/WhatsAppButton';
-import { products } from '@/lib/content';
+import { getProducts } from '@/lib/medusa';
 
 export const metadata: Metadata = {
   title: 'Products | Sundas Beauty Parlour',
   description: 'Shop trusted beauty essentials from Sundas Beauty Parlour.'
 };
 
-export default function ProductsPage() {
+export const dynamic = 'force-dynamic';
+
+export default async function ProductsPage() {
+  const products = await getProducts();
+
   return (
     <main className="products-page">
       <Navbar />
