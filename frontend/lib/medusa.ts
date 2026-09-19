@@ -1,4 +1,5 @@
 import Medusa from '@medusajs/js-sdk';
+import { unstable_cache } from 'next/cache';
 import { cookies } from 'next/headers';
 import type { Product, ProductVariant } from './content';
 
@@ -56,7 +57,7 @@ function mapProduct(product: MedusaProduct): Product {
   };
 }
 
-async function getPkrRegionId(): Promise<string> {
+const getPkrRegionId = unstable_cache(async (): Promise<string> => {
   const { regions } = await sdk.store.region.list();
   const pkrRegion = (regions as MedusaRegion[]).find((region) => region.currency_code === 'pkr');
 
@@ -65,21 +66,29 @@ async function getPkrRegionId(): Promise<string> {
   }
 
   return pkrRegion.id;
-}
+}, ['medusa-pkr-region'], { revalidate: 300 });
 
 const productFields = '*variants,*variants.prices,*variants.calculated_price';
 const cartFields = '*items,*items.variant,*items.product';
+const cartMutationFields = '*items';
 
-export async function getProducts(): Promise<Product[]> {
+const getCachedProducts = unstable_cache(async (): Promise<Product[]> => {
   const regionId = await getPkrRegionId();
   const { products } = await sdk.store.product.list({ limit: 100, region_id: regionId, fields: productFields });
   return products.map(mapProduct);
+}, ['medusa-products'], { revalidate: 60 });
+
+export async function getProducts(): Promise<Product[]> {
+  return getCachedProducts();
 }
 
 export async function getProductByHandle(handle: string): Promise<Product | undefined> {
-  const regionId = await getPkrRegionId();
-  const { products } = await sdk.store.product.list({ handle, region_id: regionId, fields: productFields });
-  return products[0] ? mapProduct(products[0]) : undefined;
+  const getCachedProduct = unstable_cache(async () => {
+    const regionId = await getPkrRegionId();
+    const { products } = await sdk.store.product.list({ handle, region_id: regionId, fields: productFields });
+    return products[0] ? mapProduct(products[0]) : undefined;
+  }, ['medusa-product', handle], { revalidate: 60 });
+  return getCachedProduct();
 }
 
 export async function createMedusaCart() {
@@ -89,8 +98,12 @@ export async function createMedusaCart() {
   return cart;
 }
 
+function getMedusaCartId() {
+  return cookies().get(MEDUSA_CART_COOKIE)?.value;
+}
+
 export async function getMedusaCart() {
-  const cartId = cookies().get(MEDUSA_CART_COOKIE)?.value;
+  const cartId = getMedusaCartId();
   if (!cartId) return null;
 
   try {
@@ -103,25 +116,25 @@ export async function getMedusaCart() {
 }
 
 export async function addMedusaLineItem(variantId: string, quantity: number) {
-  let cart = await getMedusaCart();
-  if (!cart) cart = await createMedusaCart();
+  const existingCartId = getMedusaCartId();
+  const cartId = existingCartId ?? (await createMedusaCart()).id;
 
-  const { cart: updatedCart } = await sdk.store.cart.createLineItem(cart.id, { variant_id: variantId, quantity }, { fields: cartFields });
+  const { cart: updatedCart } = await sdk.store.cart.createLineItem(cartId, { variant_id: variantId, quantity }, { fields: cartMutationFields });
   return updatedCart;
 }
 
 export async function updateMedusaLineItem(lineItemId: string, quantity: number) {
-  const cart = await getMedusaCart();
-  if (!cart) return null;
+  const cartId = getMedusaCartId();
+  if (!cartId) return null;
 
-  const { cart: updatedCart } = await sdk.store.cart.updateLineItem(cart.id, lineItemId, { quantity }, { fields: cartFields });
+  const { cart: updatedCart } = await sdk.store.cart.updateLineItem(cartId, lineItemId, { quantity }, { fields: cartMutationFields });
   return updatedCart;
 }
 
 export async function removeMedusaLineItem(lineItemId: string) {
-  const cart = await getMedusaCart();
-  if (!cart) return null;
+  const cartId = getMedusaCartId();
+  if (!cartId) return null;
 
-  const { parent } = await sdk.store.cart.deleteLineItem(cart.id, lineItemId, { fields: cartFields });
+  const { parent } = await sdk.store.cart.deleteLineItem(cartId, lineItemId, { fields: cartMutationFields });
   return parent;
 }
