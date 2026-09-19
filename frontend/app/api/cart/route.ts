@@ -1,5 +1,10 @@
 import { NextResponse } from 'next/server';
-import { addMedusaLineItem, removeMedusaLineItem, updateMedusaLineItem } from '@/lib/medusa';
+import { addMedusaLineItem, getMedusaCart, removeMedusaLineItem, updateMedusaLineItem } from '@/lib/medusa';
+
+export async function GET() {
+  const cart = await getMedusaCart();
+  return NextResponse.json({ cart });
+}
 
 export async function POST(request: Request) {
   const body = await request.json() as { variant_id?: string; quantity?: number };

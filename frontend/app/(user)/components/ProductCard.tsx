@@ -18,7 +18,6 @@ export function ProductCard({ product, index = 0 }: ProductCardProps) {
         <h3>{product.name}</h3>
         <p>{product.description}</p>
       </Link>
-      <Link href={`/products/${product.slug}`} className="service-link bg-gradient-gold">View Details <span aria-hidden="true">↗</span></Link>
     </article>
   );
 }
