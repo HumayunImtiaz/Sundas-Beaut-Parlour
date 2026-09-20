@@ -14,6 +14,7 @@ type CartItem = {
   title?: string;
   product_title?: string;
   variant_title?: string;
+  thumbnail?: string | null;
   variant?: { product?: CartProduct };
   product?: CartProduct;
   variant_id: string;
@@ -125,7 +126,7 @@ export function CartItems({ cart: initialCart }: { cart: unknown }) {
 
   return <div className="cart-layout">
     <div className="cart-items">{error && <p role="alert" className="cart-error">{error}</p>}{cart.items?.map((item) => <article className="cart-item" key={item.id}>
-      <div className="cart-item-product">{(item.variant?.product?.thumbnail ?? item.product?.thumbnail) && <div className="cart-item-image"><Image src={(item.variant?.product?.thumbnail ?? item.product?.thumbnail) as string} alt={item.product_title ?? item.title ?? 'Product'} fill unoptimized sizes="96px" /></div>}<div><p className="eyebrow">{item.variant_title ?? 'Product'}</p><h2>{item.product_title ?? item.title}</h2><p className="cart-item-variant">Variant ID: {item.variant_id}</p></div></div>
+      <div className="cart-item-product">{(item.thumbnail ?? item.variant?.product?.thumbnail ?? item.product?.thumbnail) && <div className="cart-item-image"><Image src={(item.thumbnail ?? item.variant?.product?.thumbnail ?? item.product?.thumbnail) as string} alt={item.product_title ?? item.title ?? 'Product'} fill unoptimized sizes="96px" /></div>}<div><p className="eyebrow">{item.variant_title ?? 'Product'}</p><h2>{item.product_title ?? item.title}</h2><p className="cart-item-variant">Variant ID: {item.variant_id}</p></div></div>
       <div className="cart-item-actions"><strong>PKR {(item.unit_price ?? 0).toLocaleString()}</strong><div className="cart-quantity"><button type="button" disabled={busyItems.has(item.id)} onClick={() => updateItem(item.id, Math.max(1, item.quantity - 1))} aria-label={`Decrease ${item.product_title ?? item.title}`}>−</button><span>{item.quantity}</span><button type="button" disabled={busyItems.has(item.id)} onClick={() => updateItem(item.id, item.quantity + 1)} aria-label={`Increase ${item.product_title ?? item.title}`}>+</button></div><button className="cart-remove" type="button" disabled={busyItems.has(item.id)} onClick={() => removeItem(item.id)}>Remove</button></div>
     </article>)}</div>
     <aside className="cart-summary"><p className="eyebrow">Summary</p><div><span>Subtotal</span><strong>PKR {(cart.subtotal ?? 0).toLocaleString()}</strong></div><button className="button button-gold bg-gradient-gold" type="button">Proceed to Checkout <span aria-hidden="true">↗</span></button></aside>
