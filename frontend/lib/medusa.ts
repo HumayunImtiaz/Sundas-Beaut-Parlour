@@ -69,7 +69,7 @@ const getPkrRegionId = unstable_cache(async (): Promise<string> => {
 }, ['medusa-pkr-region'], { revalidate: 300 });
 
 const productFields = '*variants,*variants.prices,*variants.calculated_price';
-const cartFields = '*items,*items.variant,*items.product';
+const cartFields = '*items';
 const cartMutationFields = '*items';
 
 const getCachedProducts = unstable_cache(async (): Promise<Product[]> => {

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { addMedusaLineItem, getMedusaCart, removeMedusaLineItem, updateMedusaLineItem } from '@/lib/medusa';
+import { addMedusaLineItem, getMedusaCart, removeMedusaLineItem, updateMedusaLineItem, MEDUSA_CART_COOKIE } from '@/lib/medusa';
 
 export async function GET() {
   const cart = await getMedusaCart();
@@ -13,7 +13,11 @@ export async function POST(request: Request) {
   }
 
   const cart = await addMedusaLineItem(body.variant_id, body.quantity);
-  return NextResponse.json({ cart });
+  const response = NextResponse.json({ cart });
+  if (cart?.id) {
+    response.cookies.set(MEDUSA_CART_COOKIE, cart.id, { httpOnly: true, sameSite: 'lax', path: '/' });
+  }
+  return response;
 }
 
 export async function PATCH(request: Request) {
