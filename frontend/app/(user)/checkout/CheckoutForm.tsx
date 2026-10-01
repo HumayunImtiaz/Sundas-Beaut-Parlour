@@ -1,8 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
+import { notifyCartUpdated } from '@/lib/cart-events';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 type CartProduct = {
   thumbnail?: string | null;
@@ -27,51 +30,236 @@ type Cart = {
   subtotal?: number;
 };
 
-export function CheckoutForm({ cart }: { cart: Cart }) {
-  const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
+// ─── Field keys & validation ──────────────────────────────────────────────────
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+const FIELD_KEYS = ['firstName', 'lastName', 'address', 'city', 'postalCode', 'phone', 'email'] as const;
+type FieldKey = (typeof FIELD_KEYS)[number];
+
+type FieldMeta = {
+  label: string;
+  required: boolean;
+  pattern?: RegExp;
+  patternMsg?: string;
+};
+
+const FIELDS: Record<FieldKey, FieldMeta> = {
+  firstName:  { label: 'First name',    required: true },
+  lastName:   { label: 'Last name',     required: true },
+  address:    { label: 'Address',       required: true },
+  city:       { label: 'City',          required: true },
+  postalCode: { label: 'Postal code',   required: true },
+  phone:      { label: 'Phone number',  required: true,  pattern: /^\+?[\d\s\-()]{7,20}$/, patternMsg: 'Enter a valid phone number' },
+  email:      { label: 'Email address', required: true,  pattern: /^[^\s@]+@[^\s@]+\.[^\s@]+$/, patternMsg: 'Enter a valid email address' },
+};
+
+type FormValues = Record<FieldKey, string>;
+type FormErrors = Partial<Record<FieldKey, string>>;
+
+const emptyValues = (): FormValues =>
+  Object.fromEntries(FIELD_KEYS.map(k => [k, ''])) as FormValues;
+
+// ─── localStorage helpers ─────────────────────────────────────────────────────
+
+const LS_IDENTITY_KEY = 'sundas_customer_identity';
+const LS_ORDER_IDS_KEY = 'sundas_order_ids';
+
+function saveIdentity(email: string, phone: string) {
+  try {
+    localStorage.setItem(LS_IDENTITY_KEY, JSON.stringify({ email, phone }));
+  } catch { /* ignore */ }
+}
+
+function saveOrderId(orderId: string) {
+  try {
+    const existing: string[] = JSON.parse(localStorage.getItem(LS_ORDER_IDS_KEY) ?? '[]');
+    if (!existing.includes(orderId)) {
+      localStorage.setItem(LS_ORDER_IDS_KEY, JSON.stringify([...existing, orderId]));
+    }
+  } catch { /* ignore */ }
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
+export function CheckoutForm({ cart }: { cart: Cart }) {
+  const [values, setValues] = useState<FormValues>(emptyValues);
+  const [errors, setErrors] = useState<FormErrors>({});
+  const [loading, setLoading] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const [orderId, setOrderId] = useState<string | null>(null);
+  const [displayId, setDisplayId] = useState<number | null>(null);
+
+  const fieldRefs = useRef<Partial<Record<FieldKey, HTMLInputElement | HTMLTextAreaElement | null>>>({});
+
+  // ─── Helpers ────────────────────────────────────────────────────────────────
+
+  function onChange(key: FieldKey, value: string) {
+    setValues(prev => ({ ...prev, [key]: value }));
+    if (errors[key]) {
+      setErrors(prev => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    }
+    if (submitError) setSubmitError(null);
+  }
+
+  function validate(): FormErrors {
+    const errs: FormErrors = {};
+    for (const key of FIELD_KEYS) {
+      const meta = FIELDS[key];
+      const val = values[key].trim();
+      if (meta.required && !val) {
+        errs[key] = 'This field is required';
+      } else if (val && meta.pattern && !meta.pattern.test(val)) {
+        errs[key] = meta.patternMsg ?? 'Invalid format';
+      }
+    }
+    return errs;
+  }
+
+  // ─── Submit ─────────────────────────────────────────────────────────────────
+
+  const handleSubmit = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+
+    const errs = validate();
+    setErrors(errs);
+
+    const firstBadKey = FIELD_KEYS.find(k => errs[k]);
+    if (firstBadKey) {
+      const el = fieldRefs.current[firstBadKey];
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.focus({ preventScroll: true });
+      }
+      return;
+    }
+
     setLoading(true);
-    
-    // Simulate order placement
-    setTimeout(() => {
-      setLoading(false);
+    setSubmitError(null);
+
+    try {
+      // 1. Complete the Medusa cart → place the real order
+      const completeRes = await fetch('/api/checkout/complete', { method: 'POST' });
+      const completeData = await completeRes.json() as { order?: { id: string; display_id?: number }; error?: string };
+
+      if (!completeRes.ok || completeData.error) {
+        setSubmitError(completeData.error ?? 'Order could not be placed. Please try again.');
+        setLoading(false);
+        return;
+      }
+
+      const order = completeData.order!;
+
+      // 2. Clear the cart cookie so the navbar resets
+      await fetch('/api/cart/clear', { method: 'DELETE' });
+
+      // 3. Notify the navbar to reset badge to 0
+      notifyCartUpdated({ itemCount: 0 });
+
+      // 4. Persist identity + order ID for /my-orders
+      saveIdentity(values.email.trim(), values.phone.trim());
+      saveOrderId(order.id);
+
+      // 5. Show success screen
+      setOrderId(order.id);
+      setDisplayId(order.display_id ?? null);
       setSuccess(true);
-    }, 1500);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Network error. Please try again.';
+      setSubmitError(msg);
+    } finally {
+      setLoading(false);
+    }
   };
+
+  // ─── Success state ──────────────────────────────────────────────────────────
 
   if (success) {
     return (
       <div className="order-success reveal">
         <span aria-hidden="true">✔</span>
         <h2>Order Confirmed.</h2>
+        {displayId && (
+          <p style={{ color: 'var(--color-gold)', fontFamily: 'var(--font-body)', fontSize: '13px', marginBottom: '4px' }}>
+            Order #{displayId}
+          </p>
+        )}
         <p>Thank you for shopping with Sundas Beauty Parlour. We will process your order soon.</p>
-        <div style={{ marginTop: '30px' }}>
-          <Link className="button button-outline" href="/products">Continue Shopping <span aria-hidden="true">↗</span></Link>
+        <div style={{ marginTop: '28px', display: 'flex', gap: '14px', flexWrap: 'wrap' }}>
+          <Link className="button button-gold bg-gradient-gold" href="/my-orders">
+            Track My Order <span aria-hidden="true">→</span>
+          </Link>
+          <Link className="button button-outline" href="/products">
+            Continue Shopping <span aria-hidden="true">↗</span>
+          </Link>
         </div>
+        {orderId && (
+          <p style={{ color: 'var(--color-text-muted)', fontFamily: 'var(--font-body)', fontSize: '11px', marginTop: '20px' }}>
+            Order ID: <code style={{ color: 'var(--color-gold-light)' }}>{orderId}</code>
+          </p>
+        )}
       </div>
     );
   }
 
+  // ─── Reusable field renderer ────────────────────────────────────────────────
+
+  function renderInput(key: FieldKey, type: 'text' | 'email' | 'tel' = 'text', placeholder?: string) {
+    const meta = FIELDS[key];
+    const hasError = Boolean(errors[key]);
+    return (
+      <label>
+        {meta.label}{meta.required && <span className="field-required"> *</span>}
+        <input
+          ref={el => { fieldRefs.current[key] = el; }}
+          type={type}
+          value={values[key]}
+          onChange={e => onChange(key, e.target.value)}
+          placeholder={placeholder}
+          aria-invalid={hasError}
+          aria-describedby={hasError ? `err-${key}` : undefined}
+        />
+        {hasError && <small id={`err-${key}`} role="alert">{errors[key]}</small>}
+      </label>
+    );
+  }
+
+  function renderTextarea(key: FieldKey, rows: number, placeholder?: string) {
+    const meta = FIELDS[key];
+    const hasError = Boolean(errors[key]);
+    return (
+      <label>
+        {meta.label}{meta.required && <span className="field-required"> *</span>}
+        <textarea
+          ref={el => { fieldRefs.current[key] = el; }}
+          rows={rows}
+          value={values[key]}
+          onChange={e => onChange(key, e.target.value)}
+          placeholder={placeholder}
+          aria-invalid={hasError}
+          aria-describedby={hasError ? `err-${key}` : undefined}
+        />
+        {hasError && <small id={`err-${key}`} role="alert">{errors[key]}</small>}
+      </label>
+    );
+  }
+
+  // ─── Render ─────────────────────────────────────────────────────────────────
+
   return (
     <div className="cart-layout relative">
-      <form onSubmit={handleSubmit} className="checkout-fields">
+      <form onSubmit={handleSubmit} className="checkout-fields" noValidate>
         <div className="order-form-panel">
           <div className="order-form-heading">
             <h2>Contact</h2>
             <p>Will be used for order updates</p>
           </div>
           <div className="order-form" style={{ marginTop: '24px' }}>
-            <label>
-              Email address
-              <input type="email" required placeholder="your@email.com" />
-            </label>
-            <label>
-              Phone number
-              <input type="tel" required placeholder="+92 3XX XXXXXXX" />
-            </label>
+            {renderInput('email', 'email', 'your@email.com')}
+            {renderInput('phone', 'tel', '+92 3XX XXXXXXX')}
           </div>
         </div>
 
@@ -82,28 +270,13 @@ export function CheckoutForm({ cart }: { cart: Cart }) {
           </div>
           <div className="order-form" style={{ marginTop: '24px' }}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '18px' }}>
-              <label>
-                First name
-                <input type="text" required placeholder="First name" />
-              </label>
-              <label>
-                Last name
-                <input type="text" required placeholder="Last name" />
-              </label>
+              {renderInput('firstName', 'text', 'First name')}
+              {renderInput('lastName', 'text', 'Last name')}
             </div>
-            <label>
-              Address
-              <textarea required rows={2} placeholder="Street address, apartment, suite, etc." />
-            </label>
+            {renderTextarea('address', 2, 'Street address, apartment, suite, etc.')}
             <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '18px' }}>
-               <label>
-                 City
-                 <input type="text" required placeholder="City" />
-               </label>
-               <label>
-                 Postal code
-                 <input type="text" placeholder="Postal code" />
-               </label>
+              {renderInput('city', 'text', 'City')}
+              {renderInput('postalCode', 'text', 'Postal code')}
             </div>
           </div>
         </div>
@@ -174,10 +347,14 @@ export function CheckoutForm({ cart }: { cart: Cart }) {
           <strong style={{ fontSize: '24px' }}>PKR {(cart.subtotal ?? 0).toLocaleString()}</strong>
         </div>
 
+        {submitError && (
+          <p className="cart-error" role="alert" style={{ marginBottom: '16px' }}>{submitError}</p>
+        )}
+
         <button 
           className="button button-gold bg-gradient-gold" 
           type="button" 
-          onClick={handleSubmit} 
+          onClick={() => void handleSubmit()} 
           disabled={loading}
           style={{ width: '100%', justifyContent: 'center' }}
         >

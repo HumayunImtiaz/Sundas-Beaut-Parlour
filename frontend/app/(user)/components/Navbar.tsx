@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { FiShoppingBag } from 'react-icons/fi';
+import { FiShoppingBag, FiPackage } from 'react-icons/fi';
 import { useTheme } from '../../theme/ThemeProvider';
 import { CART_UPDATED_EVENT, type CartUpdatedDetail } from '@/lib/cart-events';
 
@@ -74,9 +74,21 @@ export function Navbar() {
       </a>
       <nav aria-label="Main navigation" id="main-navigation" className={menuOpen ? 'mobile-menu-open' : ''}>
         {links.map((link) => <a href={link.href} key={link.href} onClick={closeMenu}>{link.label}</a>)}
+        {/* My Orders link visible in mobile menu */}
+        <a href="/my-orders" onClick={closeMenu} className="nav-my-orders-mobile">My Orders</a>
       </nav>
       <button className="theme-toggle" onClick={toggleTheme} type="button" aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>{theme === 'dark' ? '☼' : '☾'}</button>
       <a className="nav-cta" href={pathname === '/' ? '#services' : '/#services'} onClick={closeMenu}>Book a visit <span aria-hidden="true">↗</span></a>
+      {/* My Orders icon — desktop */}
+      <a
+        className="cart-nav-link nav-orders-link"
+        href="/my-orders"
+        aria-label="My Orders"
+        title="My Orders"
+        onClick={closeMenu}
+      >
+        <FiPackage aria-hidden="true" />
+      </a>
       <a className="cart-nav-link" href="/cart" aria-label={`View cart${cartItemCount ? `, ${cartItemCount} items` : ''}`} title="View cart" onClick={closeMenu}>
         <FiShoppingBag aria-hidden="true" />
         {cartItemCount > 0 && <span className="cart-nav-badge" aria-label={`${cartItemCount} items in cart`}>{cartItemCount}</span>}
