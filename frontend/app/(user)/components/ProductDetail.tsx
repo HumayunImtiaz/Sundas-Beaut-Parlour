@@ -33,7 +33,7 @@ export function ProductDetailOrder({ variants }: ProductDetailProps) {
 
   // Independent per-button loading flags
   const [isAddingToCart, setIsAddingToCart] = useState(false);
-  const [isCheckingOut,  setIsCheckingOut]  = useState(false);
+  const [isBuyingNow,    setIsBuyingNow]    = useState(false);
   const [isSyncing,      setIsSyncing]      = useState(false); // background qty sync
   const [error, setError] = useState('');
 
@@ -153,15 +153,14 @@ export function ProductDetailOrder({ variants }: ProductDetailProps) {
     // No reset timer — button stays as "In Cart" until variant changes
   }
 
-  async function handleCheckout() {
+  async function handleBuyNow() {
     if (isInCart && currentEntry && quantity !== currentEntry.quantity) {
-      // Quantity was changed since last sync — make sure cart is up to date first
       await syncQuantity(currentEntry.lineItemId, quantity, currentEntry.quantity);
     } else if (!isInCart) {
-      const ok = await doAdd(setIsCheckingOut);
+      const ok = await doAdd(setIsBuyingNow);
       if (!ok) return;
     }
-    router.push('/cart');
+    router.push('/checkout');
   }
 
   // ─── Variant switch ──────────────────────────────────────────────────────────
@@ -176,7 +175,7 @@ export function ProductDetailOrder({ variants }: ProductDetailProps) {
 
   // ─── Derived flags ───────────────────────────────────────────────────────────
 
-  const anyBusy = isAddingToCart || isCheckingOut || isSyncing;
+  const anyBusy = isAddingToCart || isBuyingNow || isSyncing;
 
   // ─── Render ──────────────────────────────────────────────────────────────────
 
@@ -225,16 +224,16 @@ export function ProductDetailOrder({ variants }: ProductDetailProps) {
             : '🛍 Add to Cart'}
       </button>
 
-      {/* "Checkout" — always enabled */}
+      {/* "Buy Now" — always enabled, skips to checkout */}
       <button
         className="button button-gold bg-gradient-gold"
         type="button"
-        onClick={handleCheckout}
-        disabled={isCheckingOut}
+        onClick={handleBuyNow}
+        disabled={isBuyingNow}
       >
-        {isCheckingOut
-          ? <><span className="spinner" aria-hidden="true"></span> Adding...</>
-          : <>Checkout <span aria-hidden="true">↗</span></>}
+        {isBuyingNow
+          ? <><span className="spinner" aria-hidden="true"></span> Loading...</>
+          : <>Buy Now <span aria-hidden="true">⚡</span></>}
       </button>
     </div>
 
