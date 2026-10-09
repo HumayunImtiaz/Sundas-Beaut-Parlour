@@ -12,6 +12,7 @@ export async function GET(request: Request) {
   try {
     // Medusa store order list — fetch all orders for this email
     const fields = [
+      '+metadata',
       '*items',
       '*items.variant',
       '*items.variant.product',
