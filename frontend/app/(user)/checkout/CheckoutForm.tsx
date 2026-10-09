@@ -142,7 +142,22 @@ export function CheckoutForm({ cart }: { cart: Cart }) {
 
     try {
       // 1. Complete the Medusa cart → place the real order
-      const completeRes = await fetch('/api/checkout/complete', { method: 'POST' });
+      //    Send all customer/address details so the API can update the cart
+      //    with email, shipping address, billing address, shipping method,
+      //    and payment session before calling cart.complete().
+      const completeRes = await fetch('/api/checkout/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: values.email.trim(),
+          firstName: values.firstName.trim(),
+          lastName: values.lastName.trim(),
+          address: values.address.trim(),
+          city: values.city.trim(),
+          postalCode: values.postalCode.trim(),
+          phone: values.phone.trim(),
+        }),
+      });
       const completeData = await completeRes.json() as { order?: { id: string; display_id?: number }; error?: string };
 
       if (!completeRes.ok || completeData.error) {

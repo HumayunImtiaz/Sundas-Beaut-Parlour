@@ -24,7 +24,8 @@ type Order = {
   total?: number;
   fulfillment_status?: string;
   payment_status?: string;
-  payment_collections?: { payment_status?: string }[];
+  payment_collections?: { payment_status?: string; payment_provider_id?: string }[];
+  metadata?: { delivery_status?: string; [key: string]: unknown };
   items?: OrderItem[];
 };
 
@@ -34,33 +35,20 @@ type CustomerIdentity = { email: string; phone?: string } | null;
 
 type StatusBadge = { label: string; className: string };
 
-function mapFulfillmentStatus(status?: string): StatusBadge {
+function mapDeliveryStatus(order: Order): StatusBadge {
+  const status = order.metadata?.delivery_status;
   switch (status) {
-    case 'not_fulfilled':      return { label: '⏳ Pending',    className: 'order-status-pending' };
-    case 'partially_fulfilled':return { label: '🔄 Processing', className: 'order-status-processing' };
-    case 'fulfilled':          return { label: '✅ Confirmed',   className: 'order-status-confirmed' };
-    case 'partially_shipped':  return { label: '🚚 Shipping',   className: 'order-status-shipping' };
-    case 'shipped':            return { label: '🚚 Shipped',    className: 'order-status-shipping' };
-    case 'delivered':          return { label: '📦 Delivered',  className: 'order-status-delivered' };
-    case 'canceled':           return { label: '❌ Cancelled',  className: 'order-status-cancelled' };
-    case 'returned':           return { label: '↩ Returned',   className: 'order-status-cancelled' };
-    default:                   return { label: '🔄 In Progress', className: 'order-status-processing' };
+    case 'confirmed': return { label: '✅ Confirmed', className: 'order-status-confirmed' };
+    case 'delivered': return { label: '📦 Delivered', className: 'order-status-delivered' };
+    default:          return { label: '⏳ Pending',   className: 'order-status-pending' };
   }
 }
 
 function mapPaymentStatus(order: Order): string {
-  // Try top-level payment_status first
-  const status = order.payment_status
-    ?? order.payment_collections?.[0]?.payment_status;
-
-  switch (status) {
-    case 'captured':  return 'Paid Online';
-    case 'not_paid':
-    case 'awaiting':  return 'Cash on Delivery';
-    case 'refunded':  return 'Refunded';
-    case 'canceled':  return 'Payment Cancelled';
-    default:          return 'Cash on Delivery';
-  }
+  const providerId = order.payment_collections?.[0]?.payment_provider_id;
+  return providerId === 'pp_system_default'
+    ? 'Cash on Delivery'
+    : 'Online Payment';
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -205,7 +193,7 @@ export function MyOrdersClient() {
       </p>
 
       {orders.map(order => {
-        const fulfillBadge = mapFulfillmentStatus(order.fulfillment_status);
+        const fulfillBadge = mapDeliveryStatus(order);
         const paymentLabel = mapPaymentStatus(order);
         const total = order.total ?? order.subtotal ?? 0;
 
