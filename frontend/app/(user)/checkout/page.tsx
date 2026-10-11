@@ -27,9 +27,9 @@ export default async function CheckoutPage() {
         <Link className="back-link" href="/cart">← Back to Cart</Link>
         <p className="eyebrow">Final Step</p>
         <h1>Secure<br /><em>checkout.</em></h1>
-        <p className="section-intro">Complete your details to finalize your order.</p>
+        <p className="section-intro"> Please Complete your details to finalize your orders.</p>
       </section>
-      
+
       <section className="cart-content section-shell">
         <CheckoutForm cart={cart} />
       </section>
