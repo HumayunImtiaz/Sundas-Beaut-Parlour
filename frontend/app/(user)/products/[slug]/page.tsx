@@ -9,7 +9,7 @@ import { getProductByHandle } from '@/lib/medusa';
 
 type ProductPageProps = { params: { slug: string } };
 
-export const dynamic = 'force-dynamic';
+export const revalidate = 60;
 
 export async function generateMetadata({ params }: ProductPageProps): Promise<Metadata> {
   const product = await getProductByHandle(params.slug);
@@ -26,7 +26,7 @@ export default async function ProductDetailPage({ params }: ProductPageProps) {
       <section className="product-detail section-shell">
         <Link className="back-link" href="/products">← Back to all products</Link>
         <div className="product-detail-content">
-          <div className="product-detail-image reveal">{product.image?.url ? <Image src={product.image.url} alt={product.name} fill unoptimized priority sizes="(max-width: 800px) 100vw, 55vw" /> : <div className="service-image" aria-hidden="true" />}</div>
+          <div className="product-detail-image reveal">{product.image?.url ? <Image src={product.image.url} alt={product.name} fill priority sizes="(max-width: 800px) 100vw, 55vw" /> : <div className="service-image" aria-hidden="true" />}</div>
           <div className="product-detail-copy reveal" style={{ '--delay': '120ms' } as React.CSSProperties}>
             <p className="eyebrow">Home remedy</p>
             <h1>{product.name}</h1>

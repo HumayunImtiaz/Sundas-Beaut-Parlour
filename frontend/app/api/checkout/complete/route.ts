@@ -55,9 +55,9 @@ export async function POST(request: Request) {
   }
 
   try {
-    // ── Step 1: Update the cart with customer info ─────────────────────────
-    // Medusa requires email, shipping_address, and billing_address before
-    // a cart can be completed.
+    // ── Step 1 & 2: Update cart + fetch shipping options IN PARALLEL ──────
+    // These two calls are independent, so we run them concurrently to
+    // save ~300-400ms instead of running them sequentially.
     const shippingAddress = {
       first_name: body.firstName,
       last_name: body.lastName,
@@ -68,21 +68,20 @@ export async function POST(request: Request) {
       phone: body.phone,
     };
 
-    await sdk.store.cart.update(cartId, {
-      email: body.email,
-      shipping_address: shippingAddress,
-      billing_address: shippingAddress,
-    });
+    const [, shippingResult] = await Promise.all([
+      sdk.store.cart.update(cartId, {
+        email: body.email,
+        shipping_address: shippingAddress,
+        billing_address: shippingAddress,
+      }),
+      sdk.store.fulfillment.listCartOptions({
+        cart_id: cartId,
+      }),
+    ]);
 
-    // ── Step 2: Add a shipping method (if not already set) ────────────────
-    // Medusa won't let you complete a cart without a shipping option selected.
-    // We pick the first available option for this cart.
-    const { shipping_options } = await sdk.store.fulfillment.listCartOptions({
-      cart_id: cartId,
-    });
-
+    // ── Step 2b: Add shipping method (depends on step 2 result) ───────────
+    const { shipping_options } = shippingResult;
     if (shipping_options && shipping_options.length > 0) {
-      // Always set/overwrite the shipping method to avoid stale-state issues
       await sdk.store.cart.addShippingMethod(cartId, {
         option_id: shipping_options[0].id,
       });

@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { ProductVariant } from '@/lib/content';
 import { notifyCartUpdated } from '@/lib/cart-events';
@@ -45,6 +45,14 @@ export function ProductDetailOrder({ variants }: ProductDetailProps) {
 
   const router = useRouter();
 
+  // ─── Pre-warm cart on mount ──────────────────────────────────────────────────
+  // Fire a background GET /api/cart so that: (a) the server validates the
+  // existing cart cookie, and (b) if no cart exists yet, we know the cookie
+  // state early — reduces the first Add-to-Cart from 3 serial calls to 1.
+  useEffect(() => {
+    void fetch('/api/cart').catch(() => { /* silent — only a warm-up */ });
+  }, []);
+
   // ─── POST: add a new line item ──────────────────────────────────────────────
 
   async function doAdd(setMyLoading: (v: boolean) => void): Promise<boolean> {
@@ -52,6 +60,16 @@ export function ProductDetailOrder({ variants }: ProductDetailProps) {
     addInFlight.current = true;
     setMyLoading(true);
     setError('');
+
+    // ── Optimistic update: show "In Cart" immediately ──────────────────────
+    const optimisticEntry: AddedEntry = { lineItemId: '__optimistic__', quantity };
+    setAddedVariants((prev) => {
+      const next = new Map(prev);
+      next.set(selectedVariant.id, optimisticEntry);
+      return next;
+    });
+    notifyCartUpdated({ delta: quantity }); // bump navbar badge right away
+
     try {
       const response = await fetch('/api/cart', {
         method: 'POST',
@@ -63,7 +81,7 @@ export function ProductDetailOrder({ variants }: ProductDetailProps) {
       const data = await response.json() as { cart?: CartRaw | null };
       const items = data.cart?.items ?? [];
 
-      // Locate the line item Medusa created/merged for this variant
+      // Replace optimistic entry with real server data
       const lineItem = items.find((item) => item.variant_id === selectedVariant.id);
       const serverCount = items.reduce((t, i) => t + i.quantity, 0);
       notifyCartUpdated({ itemCount: serverCount });
@@ -74,7 +92,6 @@ export function ProductDetailOrder({ variants }: ProductDetailProps) {
           next.set(selectedVariant.id, { lineItemId: lineItem.id, quantity: lineItem.quantity });
           return next;
         });
-        // Sync displayed quantity to what the server confirmed
         setQuantity(lineItem.quantity);
       }
 
@@ -82,6 +99,13 @@ export function ProductDetailOrder({ variants }: ProductDetailProps) {
       addInFlight.current = false;
       return true;
     } catch (err) {
+      // ── Rollback optimistic update on error ──────────────────────────────
+      setAddedVariants((prev) => {
+        const next = new Map(prev);
+        next.delete(selectedVariant.id);
+        return next;
+      });
+      notifyCartUpdated({ delta: -quantity }); // revert navbar badge
       setError(err instanceof Error ? err.message : 'Unable to add this item to your cart.');
       setMyLoading(false);
       addInFlight.current = false;
@@ -214,14 +238,12 @@ export function ProductDetailOrder({ variants }: ProductDetailProps) {
         className={`button ${isInCart ? 'button-in-cart' : 'button-outline'}`}
         type="button"
         onClick={isInCart ? undefined : handleAddToCart}
-        disabled={isAddingToCart || isInCart}
+        disabled={isInCart}
         aria-label={isInCart ? 'This variant is already in your cart' : 'Add to cart'}
       >
-        {isAddingToCart
-          ? <><span className="spinner" aria-hidden="true"></span> Adding...</>
-          : isInCart
-            ? '✓ In Cart'
-            : '🛍 Add to Cart'}
+        {isInCart
+          ? <>{isAddingToCart && <span className="spinner spinner-sm" aria-hidden="true" style={{ marginRight: '6px' }} />}✓ In Cart</>
+          : '🛍 Add to Cart'}
       </button>
 
       {/* "Buy Now" — always enabled, skips to checkout */}
