@@ -21,32 +21,60 @@ const pageLinks = [
   { label: 'Location', href: '/#location' }
 ];
 
+const CART_COUNT_CACHE_KEY = 'sundas_cart_count';
+
+function getCachedCartCount(): number {
+  try {
+    const cached = localStorage.getItem(CART_COUNT_CACHE_KEY);
+    return cached ? Math.max(0, parseInt(cached, 10) || 0) : 0;
+  } catch { return 0; }
+}
+
+function setCachedCartCount(count: number) {
+  try { localStorage.setItem(CART_COUNT_CACHE_KEY, String(count)); } catch { /* ignore */ }
+}
+
 export function Navbar() {
   const pathname = usePathname();
   const { theme, toggleTheme } = useTheme();
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [cartItemCount, setCartItemCount] = useState(0);
+  const [cartItemCount, setCartItemCount] = useState(getCachedCartCount);
   const links = pathname === '/' ? homeLinks : pageLinks;
 
   useEffect(() => {
+    // Restore from localStorage instantly (already done via initial state)
+    const cached = getCachedCartCount();
+    if (cached !== cartItemCount) setCartItemCount(cached);
+
     async function refreshCartCount() {
       try {
-        const response = await fetch('/api/cart', { cache: 'no-store' });
+        const response = await fetch('/api/cart');
         if (!response.ok) return;
         const data = await response.json() as { cart?: { items?: { quantity: number }[] } | null };
-        setCartItemCount(data.cart?.items?.reduce((total, item) => total + item.quantity, 0) ?? 0);
+        const count = data.cart?.items?.reduce((total, item) => total + item.quantity, 0) ?? 0;
+        setCartItemCount(count);
+        setCachedCartCount(count);
       } catch {
-        setCartItemCount(0);
+        // Don't reset to 0 on error — keep cached value
       }
     }
 
     function handleCartUpdated(event: Event) {
       const detail = (event as CustomEvent<CartUpdatedDetail>).detail;
       const itemCount = detail?.itemCount;
-      if (typeof itemCount === 'number') setCartItemCount(itemCount);
-      else if (typeof detail?.delta === 'number') setCartItemCount((current) => Math.max(0, current + detail.delta!));
-      else void refreshCartCount();
+      if (typeof itemCount === 'number') {
+        setCartItemCount(itemCount);
+        setCachedCartCount(itemCount);
+      } else if (typeof detail?.delta === 'number') {
+        setCartItemCount((current) => {
+          const next = Math.max(0, current + detail.delta!);
+          setCachedCartCount(next);
+          return next;
+        });
+      } else {
+        void refreshCartCount();
+      }
     }
 
     void refreshCartCount();

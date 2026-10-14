@@ -321,13 +321,12 @@ export function CheckoutForm({ cart }: { cart: Cart }) {
             <div key={item.id} style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                <div className="cart-item-image" style={{ flex: '0 0 48px', width: '48px', height: '48px', position: 'relative', overflow: 'hidden' }}>
                  {(item.thumbnail || item.variant?.product?.thumbnail || item.product?.thumbnail) && (
-                   <Image 
+                    <Image 
                      src={(item.thumbnail || item.variant?.product?.thumbnail || item.product?.thumbnail) as string} 
                      alt={item.product_title || item.title || 'Product'} 
                      fill 
                      sizes="48px"
                      style={{ objectFit: 'cover' }}
-                     unoptimized
                    />
                  )}
                </div>

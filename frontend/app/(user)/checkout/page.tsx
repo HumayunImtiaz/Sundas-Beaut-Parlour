@@ -1,25 +1,15 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { redirect } from 'next/navigation';
 import { Navbar } from '../components/Navbar';
 import { WhatsAppButton } from '../components/WhatsAppButton';
-import { getMedusaCart } from '@/lib/medusa';
-import { CheckoutForm } from './CheckoutForm';
+import { CheckoutPageClient } from './CheckoutPageClient';
 
 export const metadata: Metadata = {
   title: 'Secure Checkout | Sundas Beauty Parlour',
   description: 'Complete your order securely.'
 };
 
-export const dynamic = 'force-dynamic';
-
-export default async function CheckoutPage() {
-  const cart = await getMedusaCart();
-
-  if (!cart || !cart.items || cart.items.length === 0) {
-    redirect('/cart');
-  }
-
+export default function CheckoutPage() {
   return (
     <main className="products-page">
       <Navbar />
@@ -27,11 +17,11 @@ export default async function CheckoutPage() {
         <Link className="back-link" href="/cart">← Back to Cart</Link>
         <p className="eyebrow">Final Step</p>
         <h1>Secure<br /><em>checkout.</em></h1>
-        <p className="section-intro"> Please Complete your details to finalize your orders.</p>
+        <p className="section-intro">Please complete your details to finalize your orders.</p>
       </section>
 
       <section className="cart-content section-shell">
-        <CheckoutForm cart={cart} />
+        <CheckoutPageClient />
       </section>
       <WhatsAppButton />
     </main>

@@ -2,19 +2,14 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Navbar } from '../components/Navbar';
 import { WhatsAppButton } from '../components/WhatsAppButton';
-import { getMedusaCart } from '@/lib/medusa';
-import { CartItems } from './CartItems';
+import { CartPageClient } from './CartPageClient';
 
 export const metadata: Metadata = {
   title: 'Your Cart | Sundas Beauty Parlour',
   description: 'Review your Sundas Beauty Parlour products before checkout.'
 };
 
-export const dynamic = 'force-dynamic';
-
-export default async function CartPage() {
-  const cart = await getMedusaCart();
-
+export default function CartPage() {
   return (
     <main className="products-page cart-page">
       <Navbar />
@@ -25,7 +20,7 @@ export default async function CartPage() {
         <p className="section-intro">Review your selected essentials before checkout.</p>
       </section>
       <section className="cart-content section-shell">
-        {cart?.items?.length ? <CartItems cart={cart} /> : <div className="cart-empty"><p>Your cart is waiting for something lovely.</p><Link className="button button-outline" href="/products">Browse products <span aria-hidden="true">↗</span></Link></div>}
+        <CartPageClient />
       </section>
       <WhatsAppButton />
     </main>
