@@ -1,35 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { CartItems } from './CartItems';
-
-type CartData = {
-  items?: { id: string; quantity: number }[];
-  subtotal?: number;
-};
+import { useCart } from '../../providers/CartProvider';
 
 export function CartPageClient() {
-  const [cart, setCart] = useState<CartData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { cart, isLoading, error } = useCart();
 
-  useEffect(() => {
-    async function loadCart() {
-      try {
-        const res = await fetch('/api/cart');
-        if (!res.ok) { setLoading(false); return; }
-        const data = await res.json() as { cart?: CartData | null };
-        setCart(data.cart ?? null);
-      } catch {
-        setCart(null);
-      } finally {
-        setLoading(false);
-      }
-    }
-    void loadCart();
-  }, []);
-
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="cart-loading-skeleton">
         <div className="skeleton-row" />
@@ -38,6 +16,8 @@ export function CartPageClient() {
       </div>
     );
   }
+
+  if (error) return <p role="alert" className="cart-error">{error}</p>;
 
   if (!cart?.items?.length) {
     return (
@@ -50,5 +30,5 @@ export function CartPageClient() {
     );
   }
 
-  return <CartItems cart={cart} />;
+  return <CartItems />;
 }

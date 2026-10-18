@@ -4,32 +4,12 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useRef, useState } from 'react';
 import { notifyCartUpdated } from '@/lib/cart-events';
+import { useCart, type CartData } from '../../providers/CartProvider';
 
-type CartProduct = {
-  thumbnail?: string | null;
-  title?: string;
-};
-
-type CartItem = {
-  id: string;
-  title?: string;
-  product_title?: string;
-  variant_title?: string;
-  thumbnail?: string | null;
-  variant?: { product?: CartProduct };
-  product?: CartProduct;
-  variant_id: string;
-  quantity: number;
-  unit_price?: number;
-};
-
-type Cart = {
-  items?: CartItem[];
-  subtotal?: number;
-};
-
-export function CartItems({ cart: initialCart }: { cart: unknown }) {
-  const [cart, setCart] = useState(initialCart as Cart);
+export function CartItems() {
+  const { cart: sharedCart, setCart } = useCart();
+  if (!sharedCart) return null;
+  const cart = sharedCart;
   const [busyItems, setBusyItems] = useState<Set<string>>(new Set());
   const [error, setError] = useState('');
   const busyItemsRef = useRef(new Set<string>());
@@ -50,10 +30,13 @@ export function CartItems({ cart: initialCart }: { cart: unknown }) {
     updateVersionsRef.current.set(lineItemId, updateVersion);
     setItemBusy(lineItemId, true);
     setError('');
-    setCart((currentCart) => ({
-      ...currentCart,
-      items: currentCart.items?.map((item) => item.id === lineItemId ? { ...item, quantity } : item)
-    }));
+    setCart((currentCart) => {
+      const current: CartData = currentCart ?? { items: [] };
+      return {
+        ...current,
+        items: current.items?.map((item) => item.id === lineItemId ? { ...item, quantity } : item)
+      };
+    });
     const optimisticCount = previousCount + quantity - (previousItem?.quantity ?? quantity);
     notifyCartUpdated({ itemCount: optimisticCount });
     window.setTimeout(() => setItemBusy(lineItemId, false), 400);
@@ -64,16 +47,19 @@ export function CartItems({ cart: initialCart }: { cart: unknown }) {
         body: JSON.stringify({ line_item_id: lineItemId, quantity })
       });
       if (!response.ok) throw new Error('Unable to update your cart. Please try again.');
-      const serverCart = (await response.json()).cart as Cart;
+      const serverCart = (await response.json()).cart as CartData;
       if (updateVersionsRef.current.get(lineItemId) === updateVersion) {
-        setCart((currentCart) => ({
-          ...currentCart,
-          subtotal: serverCart.subtotal,
-          items: currentCart.items?.map((item) => {
-            const serverItem = serverCart.items?.find((candidate) => candidate.id === item.id);
-            return serverItem ? { ...item, ...serverItem } : item;
-          })
-        }));
+        setCart((currentCart) => {
+          const current: CartData = currentCart ?? { items: [] };
+          return {
+            ...current,
+            subtotal: serverCart.subtotal,
+            items: current.items?.map((item) => {
+              const serverItem = serverCart.items?.find((candidate) => candidate.id === item.id);
+              return serverItem ? { ...item, ...serverItem } : item;
+            })
+          };
+        });
         notifyCartUpdated({ itemCount: serverCart.items?.reduce((total, item) => total + item.quantity, 0) ?? 0 });
       }
     } catch (requestError) {
@@ -96,22 +82,28 @@ export function CartItems({ cart: initialCart }: { cart: unknown }) {
     updateVersionsRef.current.set(lineItemId, updateVersion);
     setItemBusy(lineItemId, true);
     setError('');
-    setCart((currentCart) => ({
-      ...currentCart,
-      items: currentCart.items?.filter((item) => item.id !== lineItemId)
-    }));
+    setCart((currentCart) => {
+      const current: CartData = currentCart ?? { items: [] };
+      return {
+        ...current,
+        items: current.items?.filter((item) => item.id !== lineItemId)
+      };
+    });
     notifyCartUpdated({ itemCount: Math.max(0, previousCount - (removedItem?.quantity ?? 0)) });
     window.setTimeout(() => setItemBusy(lineItemId, false), 400);
     try {
       const response = await fetch(`/api/cart?line_item_id=${encodeURIComponent(lineItemId)}`, { method: 'DELETE' });
       if (!response.ok) throw new Error('Unable to remove this item. Please try again.');
-      const serverCart = (await response.json()).cart as Cart;
+      const serverCart = (await response.json()).cart as CartData;
       if (updateVersionsRef.current.get(lineItemId) === updateVersion) {
-        setCart((currentCart) => ({
-          ...currentCart,
-          subtotal: serverCart.subtotal,
-          items: serverCart.items ? currentCart.items?.filter((item) => serverCart.items?.some((serverItem) => serverItem.id === item.id)) : currentCart.items
-        }));
+        setCart((currentCart) => {
+          const current: CartData = currentCart ?? { items: [] };
+          return {
+            ...current,
+            subtotal: serverCart.subtotal,
+            items: serverCart.items ? current.items?.filter((item) => serverCart.items?.some((serverItem) => serverItem.id === item.id)) : current.items
+          };
+        });
         notifyCartUpdated({ itemCount: serverCart.items?.reduce((total, item) => total + item.quantity, 0) ?? 0 });
       }
     } catch (requestError) {

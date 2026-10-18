@@ -4,31 +4,7 @@ import { useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { notifyCartUpdated } from '@/lib/cart-events';
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-type CartProduct = {
-  thumbnail?: string | null;
-  title?: string;
-};
-
-type CartItem = {
-  id: string;
-  title?: string;
-  product_title?: string;
-  variant_title?: string;
-  thumbnail?: string | null;
-  variant?: { product?: CartProduct };
-  product?: CartProduct;
-  variant_id: string;
-  quantity: number;
-  unit_price?: number;
-};
-
-type Cart = {
-  items?: CartItem[];
-  subtotal?: number;
-};
+import { useCart, type CartData } from '../../providers/CartProvider';
 
 // ─── Field keys & validation ──────────────────────────────────────────────────
 
@@ -80,7 +56,8 @@ function saveOrderId(orderId: string) {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function CheckoutForm({ cart }: { cart: Cart }) {
+export function CheckoutForm({ cart }: { cart: CartData }) {
+  const { setCart } = useCart();
   const [values, setValues] = useState<FormValues>(emptyValues);
   const [errors, setErrors] = useState<FormErrors>({});
   const [loading, setLoading] = useState(false);
@@ -170,6 +147,7 @@ export function CheckoutForm({ cart }: { cart: Cart }) {
 
       // 2. Clear the cart cookie so the navbar resets
       await fetch('/api/cart/clear', { method: 'DELETE' });
+      setCart(null);
 
       // 3. Notify the navbar to reset badge to 0
       notifyCartUpdated({ itemCount: 0 });

@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { ProductVariant } from '@/lib/content';
 import { notifyCartUpdated } from '@/lib/cart-events';
+import { useCart } from '../../providers/CartProvider';
 
 type ProductDetailProps = { variants: ProductVariant[] };
 
@@ -44,14 +45,7 @@ export function ProductDetailOrder({ variants }: ProductDetailProps) {
   const syncVersionRef = useRef(0);
 
   const router = useRouter();
-
-  // ─── Pre-warm cart on mount ──────────────────────────────────────────────────
-  // Fire a background GET /api/cart so that: (a) the server validates the
-  // existing cart cookie, and (b) if no cart exists yet, we know the cookie
-  // state early — reduces the first Add-to-Cart from 3 serial calls to 1.
-  useEffect(() => {
-    void fetch('/api/cart').catch(() => { /* silent — only a warm-up */ });
-  }, []);
+  const { setCart } = useCart();
 
   // ─── POST: add a new line item ──────────────────────────────────────────────
 
@@ -80,6 +74,7 @@ export function ProductDetailOrder({ variants }: ProductDetailProps) {
 
       const data = await response.json() as { cart?: CartRaw | null };
       const items = data.cart?.items ?? [];
+      setCart(data.cart ?? null);
 
       // Replace optimistic entry with real server data
       const lineItem = items.find((item) => item.variant_id === selectedVariant.id);
@@ -136,6 +131,7 @@ export function ProductDetailOrder({ variants }: ProductDetailProps) {
       const data = await response.json() as { cart?: CartRaw | null };
       if (version !== syncVersionRef.current) return; // stale — a newer PATCH is in-flight
 
+      setCart(data.cart ?? null);
       const items = data.cart?.items ?? [];
       const serverCount = items.reduce((t, i) => t + i.quantity, 0);
       notifyCartUpdated({ itemCount: serverCount });
