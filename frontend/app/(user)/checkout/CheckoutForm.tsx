@@ -36,22 +36,35 @@ const emptyValues = (): FormValues =>
 
 // ─── localStorage helpers ─────────────────────────────────────────────────────
 
-const LS_IDENTITY_KEY = 'sundas_customer_identity';
 const LS_ORDER_IDS_KEY = 'sundas_order_ids';
 
-function saveIdentity(email: string, phone: string) {
+function saveOrder(orderId: string, phone: string) {
   try {
-    localStorage.setItem(LS_IDENTITY_KEY, JSON.stringify({ email, phone }));
-  } catch { /* ignore */ }
-}
-
-function saveOrderId(orderId: string) {
-  try {
-    const existing: string[] = JSON.parse(localStorage.getItem(LS_ORDER_IDS_KEY) ?? '[]');
-    if (!existing.includes(orderId)) {
-      localStorage.setItem(LS_ORDER_IDS_KEY, JSON.stringify([...existing, orderId]));
+    let parsed: unknown = [];
+    try {
+      parsed = JSON.parse(localStorage.getItem(LS_ORDER_IDS_KEY) ?? '[]');
+    } catch {
+      console.warn('[checkout] Existing saved orders were not valid JSON.');
     }
-  } catch { /* ignore */ }
+    const existing = Array.isArray(parsed)
+      ? parsed.filter(
+          (entry): entry is { orderId: string; phone: string } =>
+            Boolean(
+              entry &&
+                typeof entry === 'object' &&
+                typeof entry.orderId === 'string' &&
+                typeof entry.phone === 'string'
+            )
+        )
+      : [];
+    const next = [
+      { orderId, phone },
+      ...existing.filter((entry) => entry.orderId !== orderId),
+    ];
+    localStorage.setItem(LS_ORDER_IDS_KEY, JSON.stringify(next));
+  } catch (error) {
+    console.warn('[checkout] Could not save this order in the browser.', error);
+  }
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -152,9 +165,8 @@ export function CheckoutForm({ cart }: { cart: CartData }) {
       // 3. Notify the navbar to reset badge to 0
       notifyCartUpdated({ itemCount: 0 });
 
-      // 4. Persist identity + order ID for /my-orders
-      saveIdentity(values.email.trim(), values.phone.trim());
-      saveOrderId(order.id);
+      // 4. Persist the order ID and checkout phone for /my-orders
+      saveOrder(order.id, values.phone.trim());
 
       // 5. Show success screen
       setOrderId(order.id);
@@ -277,7 +289,7 @@ export function CheckoutForm({ cart }: { cart: CartData }) {
         <div className="order-form-panel">
           <div className="order-form-heading">
             <h2>Payment Mode</h2>
-            <p>All transactions are secure and encrypted.</p>
+            <p>Payment is collected when your order arrives.</p>
           </div>
           <div className="order-form" style={{ marginTop: '24px' }}>
             <div className="payment-label">
