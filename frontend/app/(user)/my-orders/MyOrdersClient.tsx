@@ -6,6 +6,7 @@ import { FormEvent, useEffect, useState } from 'react';
 type SavedOrder = {
   orderId: string;
   phone: string;
+  details?: Order;
 };
 
 type OrderItem = {
@@ -59,7 +60,12 @@ function getSavedOrders(): SavedOrder[] {
         typeof entry.orderId === 'string' &&
         typeof entry.phone === 'string'
       ) {
-        return [{ orderId: entry.orderId, phone: entry.phone }];
+        const details = 'details' in entry ? entry.details : undefined;
+        return [{
+          orderId: entry.orderId,
+          phone: entry.phone,
+          ...(isOrder(details) ? { details } : {}),
+        }];
       }
       if (typeof entry === 'string' && legacyPhone) {
         return [{ orderId: entry, phone: legacyPhone }];
@@ -70,6 +76,31 @@ function getSavedOrders(): SavedOrder[] {
     console.error('[my-orders] Could not read saved orders from this browser.', error);
     return [];
   }
+}
+
+function isOrder(value: unknown): value is Order {
+  if (!value || typeof value !== 'object') return false;
+  const order = value as Partial<Order>;
+  return (
+    Number.isSafeInteger(order.orderNumber) &&
+    Array.isArray(order.items) &&
+    order.items.every(isOrderItem) &&
+    typeof order.total === 'number' &&
+    (order.date === null || typeof order.date === 'string') &&
+    order.paymentMethod === 'Cash on Delivery' &&
+    (order.status === 'Pending' || order.status === 'Confirmed' || order.status === 'Delivered')
+  );
+}
+
+function isOrderItem(value: unknown): value is OrderItem {
+  if (!value || typeof value !== 'object') return false;
+  const item = value as Partial<OrderItem>;
+  return (
+    typeof item.name === 'string' &&
+    (item.thumbnail === null || typeof item.thumbnail === 'string') &&
+    Number.isFinite(item.quantity) &&
+    Number.isFinite(item.price)
+  );
 }
 
 function formatDate(iso: string | null): string {
@@ -152,15 +183,19 @@ export function MyOrdersClient() {
 
   useEffect(() => {
     const savedOrders = getSavedOrders();
+    const savedDetails = savedOrders.flatMap((saved) =>
+      saved.details ? [saved.details] : []
+    );
+    const ordersToFetch = savedOrders.filter((saved) => !saved.details);
 
     void (async () => {
       try {
         const loadedOrders: Order[] = [];
-        for (let index = 0; index < savedOrders.length; index += 25) {
+        for (let index = 0; index < ordersToFetch.length; index += 25) {
           const response = await fetch('/api/orders', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ orders: savedOrders.slice(index, index + 25) }),
+            body: JSON.stringify({ orders: ordersToFetch.slice(index, index + 25) }),
             cache: 'no-store',
           });
           const result = (await response.json()) as OrdersResponse;
@@ -169,8 +204,9 @@ export function MyOrdersClient() {
           }
           loadedOrders.push(...(result.orders ?? []));
         }
-        setOrders(loadedOrders);
+        setOrders([...savedDetails, ...loadedOrders]);
       } catch {
+        setOrders(savedDetails);
         setLoadError('Orders could not be loaded right now. Please try again later.');
       } finally {
         setLoading(false);
@@ -262,7 +298,7 @@ export function MyOrdersClient() {
           <span className="spinner" style={{ width: '28px', height: '28px', borderWidth: '3px' }}></span>
           <p>Loading your orders…</p>
         </div>
-      ) : loadError ? (
+      ) : loadError && visibleOrders.length === 0 ? (
         <div className="my-orders-empty reveal">
           <h2>Orders unavailable</h2>
           <p>{loadError}</p>

@@ -38,7 +38,21 @@ const emptyValues = (): FormValues =>
 
 const LS_ORDER_IDS_KEY = 'sundas_order_ids';
 
-function saveOrder(orderId: string, phone: string) {
+type SavedOrderDetails = {
+  orderNumber: number;
+  date: string;
+  items: {
+    name: string;
+    thumbnail: string | null;
+    quantity: number;
+    price: number;
+  }[];
+  total: number;
+  paymentMethod: 'Cash on Delivery';
+  status: 'Pending';
+};
+
+function saveOrder(orderId: string, phone: string, details?: SavedOrderDetails) {
   try {
     let parsed: unknown = [];
     try {
@@ -58,7 +72,7 @@ function saveOrder(orderId: string, phone: string) {
         )
       : [];
     const next = [
-      { orderId, phone },
+      { orderId, phone, ...(details ? { details } : {}) },
       ...existing.filter((entry) => entry.orderId !== orderId),
     ];
     localStorage.setItem(LS_ORDER_IDS_KEY, JSON.stringify(next));
@@ -148,7 +162,10 @@ export function CheckoutForm({ cart }: { cart: CartData }) {
           phone: values.phone.trim(),
         }),
       });
-      const completeData = await completeRes.json() as { order?: { id: string; display_id?: number }; error?: string };
+      const completeData = await completeRes.json() as {
+        order?: { id: string; display_id?: number; total?: number };
+        error?: string;
+      };
 
       if (!completeRes.ok || completeData.error) {
         setSubmitError(completeData.error ?? 'Order could not be placed. Please try again.');
@@ -165,8 +182,29 @@ export function CheckoutForm({ cart }: { cart: CartData }) {
       // 3. Notify the navbar to reset badge to 0
       notifyCartUpdated({ itemCount: 0 });
 
-      // 4. Persist the order ID and checkout phone for /my-orders
-      saveOrder(order.id, values.phone.trim());
+      // 4. Persist order details so /my-orders can render them immediately.
+      if (typeof order.display_id === 'number' && Number.isSafeInteger(order.display_id)) {
+        saveOrder(order.id, values.phone.trim(), {
+          orderNumber: order.display_id,
+          date: new Date().toISOString(),
+          items: (cart.items ?? []).map((item) => ({
+            name: item.product_title ?? item.title ?? item.variant_title ?? 'Product',
+            thumbnail:
+              item.thumbnail ??
+              item.variant?.product?.thumbnail ??
+              item.product?.thumbnail ??
+              null,
+            quantity: item.quantity,
+            price: item.unit_price ?? 0,
+          })),
+          total: order.total ?? cart.subtotal ?? 0,
+          paymentMethod: 'Cash on Delivery',
+          status: 'Pending',
+        });
+      } else {
+        saveOrder(order.id, values.phone.trim());
+        console.error('[checkout] The completed order did not include a display number.');
+      }
 
       // 5. Show success screen
       setOrderId(order.id);

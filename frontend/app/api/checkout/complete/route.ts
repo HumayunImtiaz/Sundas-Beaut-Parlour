@@ -105,11 +105,12 @@ export async function POST(request: Request) {
     const result = await sdk.store.cart.complete(cartId);
 
     if (result.type === 'order') {
-      const order = result.order as { id: string; display_id?: number };
+      const order = result.order as { id: string; display_id?: number; total?: number };
       return NextResponse.json({
         order: {
           id: order.id,
           display_id: order.display_id,
+          total: order.total,
         },
       });
     }
