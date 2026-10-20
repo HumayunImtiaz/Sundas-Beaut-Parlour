@@ -35,10 +35,6 @@ type ShippingAddress = {
   phone?: string
 }
 
-type PaymentCollection = {
-  payment_provider_id?: string
-}
-
 type OrderMetadata = {
   delivery_status?: string
   [key: string]: unknown
@@ -50,7 +46,6 @@ type Order = {
   created_at?: string
   items?: OrderItem[]
   shipping_address?: ShippingAddress
-  payment_collections?: PaymentCollection[]
   metadata?: OrderMetadata | null
 }
 
@@ -91,13 +86,6 @@ function statusLabel(status: DeliveryStatus) {
     default:
       return "Pending"
   }
-}
-
-function getPaymentMethod(order: Order): string {
-  const providerId = order.payment_collections?.[0]?.payment_provider_id
-  return providerId === "pp_system_default"
-    ? "Cash on Delivery"
-    : "Online Payment"
 }
 
 function getProductDisplay(order: Order): {
@@ -143,7 +131,7 @@ function formatDate(iso?: string): string {
 // ── Fetch ────────────────────────────────────────────────────────────────────
 
 const ORDER_FIELDS =
-  "+metadata,*items,*items.variant,*items.variant.product,*shipping_address,*payment_collections"
+  "+metadata,*items,*items.variant,*items.variant.product,*shipping_address"
 
 async function fetchOrders(): Promise<OrdersResponse> {
   const res = await fetch(
@@ -295,7 +283,7 @@ const SimpleOrdersPage = () => {
                   <Table.Cell>
                     {order.shipping_address?.phone ?? "—"}
                   </Table.Cell>
-                  <Table.Cell>{getPaymentMethod(order)}</Table.Cell>
+                  <Table.Cell>Cash on Delivery</Table.Cell>
                   <Table.Cell>
                     <Badge color={statusBadgeColor(currentStatus)}>
                       {statusLabel(currentStatus)}

@@ -1,9 +1,12 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { ProductVariant } from '@/lib/content';
 import { notifyCartUpdated } from '@/lib/cart-events';
+import { queueCartQuantityUpdate } from '@/lib/cart-sync';
+import { useCart } from '../../providers/CartProvider';
+import type { CartData } from '../../providers/CartProvider';
 
 type ProductDetailProps = { variants: ProductVariant[] };
 
@@ -12,9 +15,6 @@ type AddedEntry = {
   lineItemId: string;  // The Medusa line-item ID — needed for PATCH updates
   quantity: number;    // The quantity that is currently synced in the cart
 };
-
-type CartItemRaw = { id: string; variant_id?: string; quantity: number };
-type CartRaw     = { items?: CartItemRaw[] };
 
 export function ProductDetailOrder({ variants }: ProductDetailProps) {
   const [selectedVariantId, setSelectedVariantId] = useState(variants[0]?.id);
@@ -39,19 +39,10 @@ export function ProductDetailOrder({ variants }: ProductDetailProps) {
 
   // Prevents two simultaneous POST requests
   const addInFlight = useRef(false);
-
-  // Version counter for PATCH debounce (same pattern as CartItems)
-  const syncVersionRef = useRef(0);
+  const selectedVariantIdRef = useRef(selectedVariantId);
 
   const router = useRouter();
-
-  // ─── Pre-warm cart on mount ──────────────────────────────────────────────────
-  // Fire a background GET /api/cart so that: (a) the server validates the
-  // existing cart cookie, and (b) if no cart exists yet, we know the cookie
-  // state early — reduces the first Add-to-Cart from 3 serial calls to 1.
-  useEffect(() => {
-    void fetch('/api/cart').catch(() => { /* silent — only a warm-up */ });
-  }, []);
+  const { setCart } = useCart();
 
   // ─── POST: add a new line item ──────────────────────────────────────────────
 
@@ -78,8 +69,9 @@ export function ProductDetailOrder({ variants }: ProductDetailProps) {
       });
       if (!response.ok) throw new Error('Unable to add this item to your cart.');
 
-      const data = await response.json() as { cart?: CartRaw | null };
+      const data = await response.json() as { cart?: CartData | null };
       const items = data.cart?.items ?? [];
+      setCart(data.cart ?? null);
 
       // Replace optimistic entry with real server data
       const lineItem = items.find((item) => item.variant_id === selectedVariant.id);
@@ -115,45 +107,45 @@ export function ProductDetailOrder({ variants }: ProductDetailProps) {
 
   // ─── PATCH: update an existing line item's quantity ─────────────────────────
 
-  async function syncQuantity(lineItemId: string, newQty: number, previousQty: number) {
-    const version = ++syncVersionRef.current;
+  async function syncQuantity(
+    lineItemId: string,
+    newQty: number,
+    previousQty: number,
+    baseQty: number,
+    variantId: string,
+  ): Promise<boolean> {
     setIsSyncing(true);
     setError('');
 
-    // Optimistic navbar update
-    // We don't know the full cart count here, so use delta
     notifyCartUpdated({ delta: newQty - previousQty });
-    window.setTimeout(() => setIsSyncing(false), 400);
 
     try {
-      const response = await fetch('/api/cart', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ line_item_id: lineItemId, quantity: newQty })
+      await queueCartQuantityUpdate<CartData>(lineItemId, newQty, {
+        onSuccess: (serverCart) => {
+          setCart(serverCart);
+          const items = serverCart.items ?? [];
+          notifyCartUpdated({ itemCount: items.reduce((total, item) => total + item.quantity, 0) });
+          const serverQuantity = items.find((item) => item.id === lineItemId)?.quantity ?? newQty;
+          setAddedVariants((previous) => {
+            const entry = previous.get(variantId);
+            if (!entry) return previous;
+            const next = new Map(previous);
+            next.set(variantId, { ...entry, quantity: serverQuantity });
+            return next;
+          });
+          if (selectedVariantIdRef.current === variantId) setQuantity(serverQuantity);
+          setIsSyncing(false);
+        },
+        onError: (requestError) => {
+          notifyCartUpdated({ delta: baseQty - newQty });
+          setError(requestError.message);
+          if (selectedVariantIdRef.current === variantId) setQuantity(baseQty);
+          setIsSyncing(false);
+        },
       });
-      if (!response.ok) throw new Error('Unable to update cart quantity.');
-
-      const data = await response.json() as { cart?: CartRaw | null };
-      if (version !== syncVersionRef.current) return; // stale — a newer PATCH is in-flight
-
-      const items = data.cart?.items ?? [];
-      const serverCount = items.reduce((t, i) => t + i.quantity, 0);
-      notifyCartUpdated({ itemCount: serverCount });
-
-      // Update stored quantity for this entry
-      setAddedVariants((prev) => {
-        const entry = prev.get(selectedVariant!.id);
-        if (!entry) return prev;
-        const next = new Map(prev);
-        next.set(selectedVariant!.id, { ...entry, quantity: newQty });
-        return next;
-      });
+      return true;
     } catch (err) {
-      if (version !== syncVersionRef.current) return;
-      // Roll back optimistic delta
-      notifyCartUpdated({ delta: previousQty - newQty });
-      setError(err instanceof Error ? err.message : 'Unable to update cart quantity.');
-      setQuantity(previousQty); // restore the UI
+      return false;
     }
   }
 
@@ -164,9 +156,7 @@ export function ProductDetailOrder({ variants }: ProductDetailProps) {
     setQuantity(newQty);
 
     if (currentEntry) {
-      // Variant is already in cart — PATCH instead of waiting for another Add click
-      // Pass the current local state 'quantity' as the previous value, NOT the stale currentEntry.quantity
-      void syncQuantity(currentEntry.lineItemId, newQty, quantity);
+      void syncQuantity(currentEntry.lineItemId, newQty, quantity, currentEntry.quantity, selectedVariant!.id);
     }
   }
 
@@ -179,7 +169,14 @@ export function ProductDetailOrder({ variants }: ProductDetailProps) {
 
   async function handleBuyNow() {
     if (isInCart && currentEntry && quantity !== currentEntry.quantity) {
-      await syncQuantity(currentEntry.lineItemId, quantity, currentEntry.quantity);
+      const synced = await syncQuantity(
+        currentEntry.lineItemId,
+        quantity,
+        quantity,
+        currentEntry.quantity,
+        selectedVariant!.id,
+      );
+      if (!synced) return;
     } else if (!isInCart) {
       const ok = await doAdd(setIsBuyingNow);
       if (!ok) return;
@@ -190,6 +187,7 @@ export function ProductDetailOrder({ variants }: ProductDetailProps) {
   // ─── Variant switch ──────────────────────────────────────────────────────────
 
   function selectVariant(variantId: string) {
+    selectedVariantIdRef.current = variantId;
     setSelectedVariantId(variantId);
     setError('');
     // Restore quantity to whatever was last synced for this variant, or 1
@@ -198,8 +196,6 @@ export function ProductDetailOrder({ variants }: ProductDetailProps) {
   }
 
   // ─── Derived flags ───────────────────────────────────────────────────────────
-
-  const anyBusy = isAddingToCart || isBuyingNow || isSyncing;
 
   // ─── Render ──────────────────────────────────────────────────────────────────
 
@@ -227,9 +223,9 @@ export function ProductDetailOrder({ variants }: ProductDetailProps) {
 
     <div className="quantity-control" aria-label="Quantity selector">
       <span>Quantity{isSyncing && <span className="qty-syncing" aria-label="Syncing"> <span className="spinner spinner-sm" aria-hidden="true"></span></span>}</span>
-      <button type="button" disabled={anyBusy} onClick={() => changeQuantity(-1)} aria-label="Decrease quantity">−</button>
+      <button type="button" disabled={isAddingToCart || isBuyingNow} onClick={() => changeQuantity(-1)} aria-label="Decrease quantity">−</button>
       <strong>{quantity}</strong>
-      <button type="button" disabled={anyBusy} onClick={() => changeQuantity(1)} aria-label="Increase quantity">+</button>
+      <button type="button" disabled={isAddingToCart || isBuyingNow} onClick={() => changeQuantity(1)} aria-label="Increase quantity">+</button>
     </div>
 
     <div className="product-detail-actions">

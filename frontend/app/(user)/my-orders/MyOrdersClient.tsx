@@ -1,253 +1,327 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import Image from 'next/image';
+import { FormEvent, useEffect, useState } from 'react';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+type SavedOrder = {
+  orderId: string;
+  phone: string;
+  details?: Order;
+};
 
 type OrderItem = {
-  id: string;
-  title?: string;
-  product_title?: string;
-  variant_title?: string;
+  name: string;
+  thumbnail: string | null;
   quantity: number;
-  unit_price?: number;
-  thumbnail?: string | null;
-  variant?: { product?: { title?: string; thumbnail?: string | null } };
-  product?: { title?: string; thumbnail?: string | null };
+  price: number;
 };
 
 type Order = {
-  id: string;
-  display_id?: number;
-  created_at?: string;
-  subtotal?: number;
-  total?: number;
-  fulfillment_status?: string;
-  payment_status?: string;
-  payment_collections?: { payment_status?: string; payment_provider_id?: string }[];
-  metadata?: { delivery_status?: string; [key: string]: unknown };
-  items?: OrderItem[];
+  orderNumber: number;
+  date: string | null;
+  items: OrderItem[];
+  total: number;
+  paymentMethod: 'Cash on Delivery';
+  status: 'Pending' | 'Confirmed' | 'Delivered';
 };
 
-type CustomerIdentity = { email: string; phone?: string } | null;
+type OrdersResponse = {
+  orders?: Order[];
+  trackedOrder?: Order | null;
+  error?: string;
+};
 
-// ─── Status mapping ──────────────────────────────────────────────────────────
-
-type StatusBadge = { label: string; className: string };
-
-function mapDeliveryStatus(order: Order): StatusBadge {
-  const status = order.metadata?.delivery_status;
-  switch (status) {
-    case 'confirmed': return { label: '✅ Confirmed', className: 'order-status-confirmed' };
-    case 'delivered': return { label: '📦 Delivered', className: 'order-status-delivered' };
-    default:          return { label: '⏳ Pending',   className: 'order-status-pending' };
-  }
-}
-
-function mapPaymentStatus(order: Order): string {
-  const providerId = order.payment_collections?.[0]?.payment_provider_id;
-  return providerId === 'pp_system_default'
-    ? 'Cash on Delivery'
-    : 'Online Payment';
-}
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
+const LS_ORDER_IDS_KEY = 'sundas_order_ids';
 const LS_IDENTITY_KEY = 'sundas_customer_identity';
+const TRACK_ERROR = 'We could not find an order matching those details. Check the order number and phone number, then try again.';
 
-function getIdentity(): CustomerIdentity {
+function getSavedOrders(): SavedOrder[] {
   try {
-    const raw = localStorage.getItem(LS_IDENTITY_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw) as CustomerIdentity;
-  } catch {
-    return null;
+    const raw = localStorage.getItem(LS_ORDER_IDS_KEY);
+    if (!raw) return [];
+
+    const saved: unknown = JSON.parse(raw);
+    if (!Array.isArray(saved)) return [];
+
+    let legacyPhone = '';
+    try {
+      const identity = JSON.parse(localStorage.getItem(LS_IDENTITY_KEY) ?? '{}') as {
+        phone?: string;
+      };
+      legacyPhone = identity.phone ?? '';
+    } catch {
+      // Ignore the obsolete identity entry; current order records include their own phone.
+    }
+
+    return saved.flatMap((entry): SavedOrder[] => {
+      if (
+        entry &&
+        typeof entry === 'object' &&
+        typeof entry.orderId === 'string' &&
+        typeof entry.phone === 'string'
+      ) {
+        const details = 'details' in entry ? entry.details : undefined;
+        return [{
+          orderId: entry.orderId,
+          phone: entry.phone,
+          ...(isOrder(details) ? { details } : {}),
+        }];
+      }
+      if (typeof entry === 'string' && legacyPhone) {
+        return [{ orderId: entry, phone: legacyPhone }];
+      }
+      return [];
+    });
+  } catch (error) {
+    console.error('[my-orders] Could not read saved orders from this browser.', error);
+    return [];
   }
 }
 
-function itemName(item: OrderItem): string {
+function isOrder(value: unknown): value is Order {
+  if (!value || typeof value !== 'object') return false;
+  const order = value as Partial<Order>;
   return (
-    item.product_title
-    ?? item.variant?.product?.title
-    ?? item.product?.title
-    ?? item.title
-    ?? 'Product'
+    Number.isSafeInteger(order.orderNumber) &&
+    Array.isArray(order.items) &&
+    order.items.every(isOrderItem) &&
+    typeof order.total === 'number' &&
+    (order.date === null || typeof order.date === 'string') &&
+    order.paymentMethod === 'Cash on Delivery' &&
+    (order.status === 'Pending' || order.status === 'Confirmed' || order.status === 'Delivered')
   );
 }
 
-function formatDate(iso?: string): string {
+function isOrderItem(value: unknown): value is OrderItem {
+  if (!value || typeof value !== 'object') return false;
+  const item = value as Partial<OrderItem>;
+  return (
+    typeof item.name === 'string' &&
+    (item.thumbnail === null || typeof item.thumbnail === 'string') &&
+    Number.isFinite(item.quantity) &&
+    Number.isFinite(item.price)
+  );
+}
+
+function formatDate(iso: string | null): string {
   if (!iso) return '—';
   return new Date(iso).toLocaleDateString('en-PK', {
-    year: 'numeric', month: 'long', day: 'numeric'
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
   });
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
+function OrderCard({ order }: { order: Order }) {
+  const statusClass = `order-status-${order.status.toLowerCase()}`;
+
+  return (
+    <article className="order-card reveal">
+      <div className="order-card-header">
+        <div>
+          <p className="eyebrow" style={{ marginBottom: '6px' }}>
+            Order #{order.orderNumber}
+          </p>
+          <p className="order-card-date">{formatDate(order.date)}</p>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
+          <span className={`order-status-badge ${statusClass}`}>{order.status}</span>
+          <span className="order-payment-badge">{order.paymentMethod}</span>
+        </div>
+      </div>
+
+      <div className="order-items">
+        {order.items.map((item, index) => (
+          <div key={`${order.orderNumber}-${index}`} className="order-item-row">
+            <div className="order-item-info">
+              {item.thumbnail && (
+                <Image
+                  className="order-item-thumbnail"
+                  src={item.thumbnail}
+                  alt=""
+                  width={48}
+                  height={48}
+                  unoptimized
+                />
+              )}
+              <span className="order-item-name">{item.name}</span>
+            </div>
+            <div className="order-item-right">
+              <span className="order-item-qty">× {item.quantity}</span>
+              <span className="order-item-price">
+                PKR {(item.price * item.quantity).toLocaleString('en-PK')}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="order-card-footer">
+        <span style={{ color: 'var(--color-text-muted)', fontSize: '12px' }}>
+          {order.items.reduce((sum, item) => sum + item.quantity, 0)} item(s)
+        </span>
+        <div style={{ textAlign: 'right' }}>
+          <span style={{ color: 'var(--color-text-muted)', fontSize: '11px', display: 'block', marginBottom: '2px' }}>
+            Total
+          </span>
+          <strong className="order-total">PKR {order.total.toLocaleString('en-PK')}</strong>
+        </div>
+      </div>
+    </article>
+  );
+}
 
 export function MyOrdersClient() {
-  const [identity, setIdentity] = useState<CustomerIdentity>(null);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [trackedOrder, setTrackedOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [orderNumber, setOrderNumber] = useState('');
+  const [phone, setPhone] = useState('');
+  const [tracking, setTracking] = useState(false);
+  const [trackingMessage, setTrackingMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    const id = getIdentity();
-    setIdentity(id);
-
-    if (!id?.email) {
-      setLoading(false);
-      return;
-    }
+    const savedOrders = getSavedOrders();
+    const savedDetails = savedOrders.flatMap((saved) =>
+      saved.details ? [saved.details] : []
+    );
+    const ordersToFetch = savedOrders.filter((saved) => !saved.details);
 
     void (async () => {
       try {
-        const res = await fetch(`/api/orders?email=${encodeURIComponent(id.email)}`, {
-          cache: 'no-store'
-        });
-        const data = await res.json() as { orders?: Order[]; error?: string };
-        if (data.error) {
-          setError(data.error);
-        } else {
-          setOrders(data.orders ?? []);
+        const loadedOrders: Order[] = [];
+        for (let index = 0; index < ordersToFetch.length; index += 25) {
+          const response = await fetch('/api/orders', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ orders: ordersToFetch.slice(index, index + 25) }),
+            cache: 'no-store',
+          });
+          const result = (await response.json()) as OrdersResponse;
+          if (!response.ok || result.error) {
+            throw new Error(result.error ?? 'Could not load orders.');
+          }
+          loadedOrders.push(...(result.orders ?? []));
         }
+        setOrders([...savedDetails, ...loadedOrders]);
       } catch {
-        setError('Could not load orders. Please try again later.');
+        setOrders(savedDetails);
+        setLoadError('Orders could not be loaded right now. Please try again later.');
       } finally {
         setLoading(false);
       }
     })();
   }, []);
 
-  // ─── Loading ───────────────────────────────────────────────────────────────
+  async function handleTrackOrder(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setTracking(true);
+    setTrackedOrder(null);
+    setTrackingMessage(null);
 
-  if (loading) {
-    return (
-      <div className="my-orders-loading">
-        <span className="spinner" style={{ width: '28px', height: '28px', borderWidth: '3px' }}></span>
-        <p>Loading your orders…</p>
-      </div>
-    );
+    try {
+      const response = await fetch('/api/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lookup: { orderNumber: orderNumber.trim(), phone: phone.trim() },
+        }),
+        cache: 'no-store',
+      });
+      const result = (await response.json()) as OrdersResponse;
+
+      if (!response.ok) {
+        setTrackingMessage(result.error ?? TRACK_ERROR);
+      } else if (result.trackedOrder) {
+        setTrackedOrder(result.trackedOrder);
+        setTrackingMessage('Order verified.');
+      } else {
+        setTrackingMessage(TRACK_ERROR);
+      }
+    } catch {
+      setTrackingMessage('We could not verify that order right now. Please try again later.');
+    } finally {
+      setTracking(false);
+    }
   }
 
-  // ─── No identity stored ────────────────────────────────────────────────────
-
-  if (!identity?.email) {
-    return (
-      <div className="my-orders-empty reveal">
-        <div className="my-orders-empty-icon">📦</div>
-        <h2>No orders found</h2>
-        <p>
-          You haven&apos;t placed any orders from this device yet, or your session has been cleared.
-          Orders are tracked using the email you enter at checkout.
-        </p>
-        <a className="button button-gold bg-gradient-gold" href="/products">
-          Browse Products <span aria-hidden="true">↗</span>
-        </a>
-      </div>
-    );
-  }
-
-  // ─── No orders for this email ──────────────────────────────────────────────
-
-  if (!error && orders.length === 0) {
-    return (
-      <div className="my-orders-empty reveal">
-        <div className="my-orders-empty-icon">🛍️</div>
-        <h2>You haven&apos;t placed any orders yet</h2>
-        <p>
-          No orders found for <strong style={{ color: 'var(--color-gold-light)' }}>{identity.email}</strong>.
-          Once you place an order it will appear here.
-        </p>
-        <a className="button button-gold bg-gradient-gold" href="/products">
-          Start Shopping <span aria-hidden="true">↗</span>
-        </a>
-      </div>
-    );
-  }
-
-  // ─── Error ─────────────────────────────────────────────────────────────────
-
-  if (error) {
-    return (
-      <div className="my-orders-empty reveal">
-        <div className="my-orders-empty-icon">⚠️</div>
-        <h2>Something went wrong</h2>
-        <p style={{ color: 'var(--color-text-muted)' }}>{error}</p>
-        <button
-          className="button button-outline"
-          onClick={() => window.location.reload()}
-        >
-          Try Again
-        </button>
-      </div>
-    );
-  }
-
-  // ─── Orders list ──────────────────────────────────────────────────────────
+  const visibleOrders = trackedOrder
+    ? [
+        trackedOrder,
+        ...orders.filter((order) => order.orderNumber !== trackedOrder.orderNumber),
+      ]
+    : orders;
 
   return (
-    <div className="my-orders-list">
-      <p className="my-orders-identity">
-        Showing orders for <strong>{identity.email}</strong>
-        {identity.phone && <> · {identity.phone}</>}
-      </p>
+    <>
+      <div className="my-orders-track">
+        <h2>Track an order</h2>
+        <p>Enter the order number and phone number used at checkout.</p>
+        <form className="my-orders-track-form" onSubmit={handleTrackOrder}>
+          <label>
+            <span>Order number</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="off"
+              value={orderNumber}
+              onChange={(event) => setOrderNumber(event.target.value)}
+              placeholder="e.g. 1042"
+              required
+            />
+          </label>
+          <label>
+            <span>Phone number</span>
+            <input
+              type="tel"
+              autoComplete="tel"
+              value={phone}
+              onChange={(event) => setPhone(event.target.value)}
+              placeholder="+92 3XX XXXXXXX"
+              required
+            />
+          </label>
+          <button className="button button-gold bg-gradient-gold" type="submit" disabled={tracking}>
+            {tracking ? 'Checking…' : 'Track order'}
+          </button>
+        </form>
+        {trackingMessage && (
+          <p className="my-orders-track-message" role="status" aria-live="polite">
+            {trackingMessage}
+          </p>
+        )}
+      </div>
 
-      {orders.map(order => {
-        const fulfillBadge = mapDeliveryStatus(order);
-        const paymentLabel = mapPaymentStatus(order);
-        const total = order.total ?? order.subtotal ?? 0;
-
-        return (
-          <div key={order.id} className="order-card reveal">
-            {/* ── Card header ── */}
-            <div className="order-card-header">
-              <div>
-                <p className="eyebrow" style={{ marginBottom: '6px' }}>
-                  Order {order.display_id ? `#${order.display_id}` : ''}
-                </p>
-                <p className="order-card-date">{formatDate(order.created_at)}</p>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
-                <span className={`order-status-badge ${fulfillBadge.className}`}>
-                  {fulfillBadge.label}
-                </span>
-                <span className="order-payment-badge">{paymentLabel}</span>
-              </div>
-            </div>
-
-            {/* ── Items ── */}
-            <div className="order-items">
-              {(order.items ?? []).map(item => (
-                <div key={item.id} className="order-item-row">
-                  <div className="order-item-info">
-                    <span className="order-item-name">{itemName(item)}</span>
-                    {item.variant_title && item.variant_title !== 'Default Variant' && (
-                      <span className="order-item-variant">{item.variant_title}</span>
-                    )}
-                  </div>
-                  <div className="order-item-right">
-                    <span className="order-item-qty">× {item.quantity}</span>
-                    <span className="order-item-price">
-                      PKR {((item.unit_price ?? 0) * item.quantity).toLocaleString()}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* ── Footer ── */}
-            <div className="order-card-footer">
-              <span style={{ color: 'var(--color-text-muted)', fontSize: '12px' }}>
-                {(order.items ?? []).reduce((s, i) => s + i.quantity, 0)} item(s)
-              </span>
-              <div style={{ textAlign: 'right' }}>
-                <span style={{ color: 'var(--color-text-muted)', fontSize: '11px', display: 'block', marginBottom: '2px' }}>Total</span>
-                <strong className="order-total">PKR {total.toLocaleString()}</strong>
-              </div>
-            </div>
-          </div>
-        );
-      })}
-    </div>
+      {loading ? (
+        <div className="my-orders-loading">
+          <span className="spinner" style={{ width: '28px', height: '28px', borderWidth: '3px' }}></span>
+          <p>Loading your orders…</p>
+        </div>
+      ) : loadError && visibleOrders.length === 0 ? (
+        <div className="my-orders-empty reveal">
+          <h2>Orders unavailable</h2>
+          <p>{loadError}</p>
+          <button className="button button-outline" onClick={() => window.location.reload()}>
+            Try again
+          </button>
+        </div>
+      ) : visibleOrders.length === 0 ? (
+        <div className="my-orders-empty reveal">
+          <div className="my-orders-empty-icon">📦</div>
+          <h2>No saved orders</h2>
+          <p>Orders placed from this browser will appear here. You can also track an order above.</p>
+          <a className="button button-gold bg-gradient-gold" href="/products">
+            Browse Products <span aria-hidden="true">↗</span>
+          </a>
+        </div>
+      ) : (
+        <div className="my-orders-list">
+          {visibleOrders.map((order) => (
+            <OrderCard key={order.orderNumber} order={order} />
+          ))}
+        </div>
+      )}
+    </>
   );
 }

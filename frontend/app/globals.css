@@ -148,6 +148,18 @@ h2 { font-size: clamp(2rem, 4vw, 2.5rem); letter-spacing: -.025em; line-height: 
 .my-orders-identity { border-left: 2px solid var(--color-gold); color: var(--color-text-muted); font-family: var(--font-body), sans-serif; font-size: 13px; margin-bottom: 36px; padding-left: 14px; }
 .my-orders-identity strong { color: var(--color-gold-light); }
 
+.my-orders-track { border: 1px solid rgba(212,175,55,.22); margin: 0 0 40px; max-width: 760px; padding: 24px; }
+.my-orders-track h2 { font-size: 1.25rem; margin: 0 0 8px; }
+.my-orders-track > p { color: var(--color-text-muted); font-family: var(--font-body), sans-serif; font-size: 13px; margin: 0 0 18px; }
+.my-orders-track-form { align-items: end; display: grid; gap: 14px; grid-template-columns: 1fr 1fr auto; }
+.my-orders-track-form label { color: var(--color-text-muted); display: grid; font-family: var(--font-body), sans-serif; font-size: 12px; gap: 7px; }
+.my-orders-track-form input { background: rgba(255,255,255,.04); border: 1px solid rgba(212,175,55,.24); color: var(--color-text-light); font: inherit; min-height: 44px; padding: 10px 12px; width: 100%; }
+.my-orders-track-form input:focus { border-color: var(--color-gold); outline: none; }
+.my-orders-track-form button { min-height: 44px; white-space: nowrap; }
+.my-orders-track-message { margin: 14px 0 0 !important; }
+.order-item-thumbnail { border-radius: 3px; flex: 0 0 48px; height: 48px; object-fit: cover; width: 48px; }
+.order-item-info:has(.order-item-thumbnail) { align-items: center; flex-direction: row; gap: 12px; }
+
 .my-orders-list { max-width: 760px; }
 
 /* ── Order card ──────────────────────────────────────────────────────────── */
@@ -189,5 +201,6 @@ h2 { font-size: clamp(2rem, 4vw, 2.5rem); letter-spacing: -.025em; line-height: 
   .order-card-header { flex-direction: column; gap: 12px; }
   .my-orders-empty { padding: 36px 24px; }
   .order-item-name { font-size: 13px; }
+  .my-orders-track-form { grid-template-columns: 1fr; }
 }
 .qty-syncing { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; vertical-align: middle; }

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { FiShoppingBag, FiPackage } from 'react-icons/fi';
 import { useTheme } from '../../theme/ThemeProvider';
-import { CART_UPDATED_EVENT, type CartUpdatedDetail } from '@/lib/cart-events';
+import { useCart } from '../../providers/CartProvider';
 
 const homeLinks = [
   { label: 'Home', href: '#top' },
@@ -21,66 +21,13 @@ const pageLinks = [
   { label: 'Location', href: '/#location' }
 ];
 
-const CART_COUNT_CACHE_KEY = 'sundas_cart_count';
-
-function getCachedCartCount(): number {
-  try {
-    const cached = localStorage.getItem(CART_COUNT_CACHE_KEY);
-    return cached ? Math.max(0, parseInt(cached, 10) || 0) : 0;
-  } catch { return 0; }
-}
-
-function setCachedCartCount(count: number) {
-  try { localStorage.setItem(CART_COUNT_CACHE_KEY, String(count)); } catch { /* ignore */ }
-}
-
 export function Navbar() {
   const pathname = usePathname();
   const { theme, toggleTheme } = useTheme();
+  const { cartItemCount } = useCart();
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [cartItemCount, setCartItemCount] = useState(getCachedCartCount);
   const links = pathname === '/' ? homeLinks : pageLinks;
-
-  useEffect(() => {
-    // Restore from localStorage instantly (already done via initial state)
-    const cached = getCachedCartCount();
-    if (cached !== cartItemCount) setCartItemCount(cached);
-
-    async function refreshCartCount() {
-      try {
-        const response = await fetch('/api/cart');
-        if (!response.ok) return;
-        const data = await response.json() as { cart?: { items?: { quantity: number }[] } | null };
-        const count = data.cart?.items?.reduce((total, item) => total + item.quantity, 0) ?? 0;
-        setCartItemCount(count);
-        setCachedCartCount(count);
-      } catch {
-        // Don't reset to 0 on error — keep cached value
-      }
-    }
-
-    function handleCartUpdated(event: Event) {
-      const detail = (event as CustomEvent<CartUpdatedDetail>).detail;
-      const itemCount = detail?.itemCount;
-      if (typeof itemCount === 'number') {
-        setCartItemCount(itemCount);
-        setCachedCartCount(itemCount);
-      } else if (typeof detail?.delta === 'number') {
-        setCartItemCount((current) => {
-          const next = Math.max(0, current + detail.delta!);
-          setCachedCartCount(next);
-          return next;
-        });
-      } else {
-        void refreshCartCount();
-      }
-    }
-
-    void refreshCartCount();
-    window.addEventListener(CART_UPDATED_EVENT, handleCartUpdated);
-    return () => window.removeEventListener(CART_UPDATED_EVENT, handleCartUpdated);
-  }, []);
 
   useEffect(() => {
     const updateScroll = () => setScrolled(window.scrollY > 40);

@@ -4,31 +4,7 @@ import { useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { notifyCartUpdated } from '@/lib/cart-events';
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-type CartProduct = {
-  thumbnail?: string | null;
-  title?: string;
-};
-
-type CartItem = {
-  id: string;
-  title?: string;
-  product_title?: string;
-  variant_title?: string;
-  thumbnail?: string | null;
-  variant?: { product?: CartProduct };
-  product?: CartProduct;
-  variant_id: string;
-  quantity: number;
-  unit_price?: number;
-};
-
-type Cart = {
-  items?: CartItem[];
-  subtotal?: number;
-};
+import { useCart, type CartData } from '../../providers/CartProvider';
 
 // ─── Field keys & validation ──────────────────────────────────────────────────
 
@@ -60,27 +36,55 @@ const emptyValues = (): FormValues =>
 
 // ─── localStorage helpers ─────────────────────────────────────────────────────
 
-const LS_IDENTITY_KEY = 'sundas_customer_identity';
 const LS_ORDER_IDS_KEY = 'sundas_order_ids';
 
-function saveIdentity(email: string, phone: string) {
-  try {
-    localStorage.setItem(LS_IDENTITY_KEY, JSON.stringify({ email, phone }));
-  } catch { /* ignore */ }
-}
+type SavedOrderDetails = {
+  orderNumber: number;
+  date: string;
+  items: {
+    name: string;
+    thumbnail: string | null;
+    quantity: number;
+    price: number;
+  }[];
+  total: number;
+  paymentMethod: 'Cash on Delivery';
+  status: 'Pending';
+};
 
-function saveOrderId(orderId: string) {
+function saveOrder(orderId: string, phone: string, details?: SavedOrderDetails) {
   try {
-    const existing: string[] = JSON.parse(localStorage.getItem(LS_ORDER_IDS_KEY) ?? '[]');
-    if (!existing.includes(orderId)) {
-      localStorage.setItem(LS_ORDER_IDS_KEY, JSON.stringify([...existing, orderId]));
+    let parsed: unknown = [];
+    try {
+      parsed = JSON.parse(localStorage.getItem(LS_ORDER_IDS_KEY) ?? '[]');
+    } catch {
+      console.warn('[checkout] Existing saved orders were not valid JSON.');
     }
-  } catch { /* ignore */ }
+    const existing = Array.isArray(parsed)
+      ? parsed.filter(
+          (entry): entry is { orderId: string; phone: string } =>
+            Boolean(
+              entry &&
+                typeof entry === 'object' &&
+                typeof entry.orderId === 'string' &&
+                typeof entry.phone === 'string'
+            )
+        )
+      : [];
+    const next = [
+      { orderId, phone, ...(details ? { details } : {}) },
+      ...existing.filter((entry) => entry.orderId !== orderId),
+    ];
+    localStorage.setItem(LS_ORDER_IDS_KEY, JSON.stringify(next));
+  } catch (error) {
+    console.warn('[checkout] Could not save this order in the browser.', error);
+  }
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function CheckoutForm({ cart }: { cart: Cart }) {
+export function CheckoutForm({ cart }: { cart: CartData }) {
+  const { setCart } = useCart();
   const [values, setValues] = useState<FormValues>(emptyValues);
   const [errors, setErrors] = useState<FormErrors>({});
   const [loading, setLoading] = useState(false);
@@ -158,7 +162,10 @@ export function CheckoutForm({ cart }: { cart: Cart }) {
           phone: values.phone.trim(),
         }),
       });
-      const completeData = await completeRes.json() as { order?: { id: string; display_id?: number }; error?: string };
+      const completeData = await completeRes.json() as {
+        order?: { id: string; display_id?: number; total?: number };
+        error?: string;
+      };
 
       if (!completeRes.ok || completeData.error) {
         setSubmitError(completeData.error ?? 'Order could not be placed. Please try again.');
@@ -170,13 +177,34 @@ export function CheckoutForm({ cart }: { cart: Cart }) {
 
       // 2. Clear the cart cookie so the navbar resets
       await fetch('/api/cart/clear', { method: 'DELETE' });
+      setCart(null);
 
       // 3. Notify the navbar to reset badge to 0
       notifyCartUpdated({ itemCount: 0 });
 
-      // 4. Persist identity + order ID for /my-orders
-      saveIdentity(values.email.trim(), values.phone.trim());
-      saveOrderId(order.id);
+      // 4. Persist order details so /my-orders can render them immediately.
+      if (typeof order.display_id === 'number' && Number.isSafeInteger(order.display_id)) {
+        saveOrder(order.id, values.phone.trim(), {
+          orderNumber: order.display_id,
+          date: new Date().toISOString(),
+          items: (cart.items ?? []).map((item) => ({
+            name: item.product_title ?? item.title ?? item.variant_title ?? 'Product',
+            thumbnail:
+              item.thumbnail ??
+              item.variant?.product?.thumbnail ??
+              item.product?.thumbnail ??
+              null,
+            quantity: item.quantity,
+            price: item.unit_price ?? 0,
+          })),
+          total: order.total ?? cart.subtotal ?? 0,
+          paymentMethod: 'Cash on Delivery',
+          status: 'Pending',
+        });
+      } else {
+        saveOrder(order.id, values.phone.trim());
+        console.error('[checkout] The completed order did not include a display number.');
+      }
 
       // 5. Show success screen
       setOrderId(order.id);
@@ -299,7 +327,7 @@ export function CheckoutForm({ cart }: { cart: Cart }) {
         <div className="order-form-panel">
           <div className="order-form-heading">
             <h2>Payment Mode</h2>
-            <p>All transactions are secure and encrypted.</p>
+            <p>Payment is collected when your order arrives.</p>
           </div>
           <div className="order-form" style={{ marginTop: '24px' }}>
             <div className="payment-label">
