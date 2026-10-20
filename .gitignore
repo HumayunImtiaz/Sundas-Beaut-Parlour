@@ -11,6 +11,7 @@ out/
 .env
 .env.*
 !.env.example
+!medusa-backend/sundas-medusa-backend/apps/backend/.env.template
 
 # Logs
 npm-debug.log*

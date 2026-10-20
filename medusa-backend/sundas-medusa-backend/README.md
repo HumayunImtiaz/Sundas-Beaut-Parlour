@@ -140,6 +140,35 @@ You can slo run the following command from the root to start both backend and st
 pnpm dev
 ```
 
+## Production backend with Docker
+
+The backend runs in a single Node 20 Alpine container and connects to an external PostgreSQL database. Set these variables in `apps/backend/.env` before starting it:
+
+| Variable | Purpose |
+|----------|---------|
+| `DATABASE_URL` | Required Neon PostgreSQL connection string |
+| `JWT_SECRET` | Required secret for signing JWTs |
+| `COOKIE_SECRET` | Required secret for signing cookies |
+| `STORE_CORS` | Allowed storefront origins |
+| `ADMIN_CORS` | Allowed admin origins |
+| `AUTH_CORS` | Allowed authentication origins |
+
+`MEDUSA_ADMIN_BACKEND_URL` is not needed for this setup: the admin dashboard is bundled and served by this backend at the same origin. The backend reads its environment from `apps/backend/.env` when the container runs; the file is excluded from the Docker image.
+
+Build and start the service from the monorepo root:
+
+```bash
+docker compose up --build -d
+```
+
+Check `http://localhost:9000/health` and open the admin login at `http://localhost:9000/app`.
+
+Database migrations are deliberately not run at container startup. Run them once when deploying a new schema:
+
+```bash
+docker compose run --rm backend npx medusa db:migrate
+```
+
 ## Configuration
 
 The storefront is configured via environment variables in `apps/storefront/.env.local`:
