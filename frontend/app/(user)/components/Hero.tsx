@@ -1,10 +1,11 @@
-import Image from 'next/image';
 import { getWhatsAppLink } from '@/lib/site';
 
 export function Hero() {
   return (
     <section className="hero" id="top">
-      <Image className="hero-image" src="https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&w=2200&q=90" alt="Sunlit beauty salon interior" fill priority sizes="100vw" />
+      <video className="hero-image" autoPlay muted loop playsInline aria-hidden="true">
+        <source src="/stylist-applying-makeup.mp4" type="video/mp4" />
+      </video>
       <div className="hero-shade" />
       <div className="hero-content">
         <p className="eyebrow hero-eyebrow">A beauty ritual, made personal</p>

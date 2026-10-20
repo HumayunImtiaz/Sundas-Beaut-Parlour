@@ -4,7 +4,8 @@ export type Service = {
   _id: string;
   name: string;
   description: string;
-  price: number;
+  priceFrom: number;
+  priceTo: number;
   image?: ImageAsset;
   createdAt?: string;
 };
@@ -31,9 +32,16 @@ export type ProductVariant = {
 };
 
 export const services: Service[] = [
-  { _id: 'service-hair-styling', name: 'Hair Styling', description: 'Personalised cuts, styling and finishing for your everyday glow.', price: 2500 },
-  { _id: 'service-facial', name: 'Signature Facial', description: 'A restorative facial ritual for fresh, luminous skin.', price: 3500 },
-  { _id: 'service-bridal', name: 'Bridal Beauty', description: 'Thoughtful hair and makeup for your most remembered moments.', price: 15000 }
+  { _id: 'service-hair-styling', name: 'Hair Styling', description: 'Personalised cuts, styling and finishing for your everyday glow.', priceFrom: 500, priceTo: 3000, image: { url: '/service-hair-styling.jpg' } },
+  { _id: 'service-facial', name: 'Signature Facial', description: 'A restorative facial ritual for fresh, luminous skin.', priceFrom: 2000, priceTo: 8000, image: { url: '/service-facial.jpg' } },
+  {
+    _id: 'service-bridal',
+    name: 'Bridal Beauty',
+    description: 'Thoughtful hair and makeup for your most remembered moments.',
+    priceFrom: 15000,
+    priceTo: 50000,
+    image: { url: '/service-bridal.png' }
+  }
 ];
 
 export const products: Product[] = [
