@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { FiShoppingBag, FiPackage } from 'react-icons/fi';
+import { FiClipboard, FiMenu, FiMoon, FiShoppingCart, FiSun, FiX } from 'react-icons/fi';
 import { useTheme } from '../../theme/ThemeProvider';
 import { useCart } from '../../providers/CartProvider';
 
@@ -49,27 +49,32 @@ export function Navbar() {
       </a>
       <nav aria-label="Main navigation" id="main-navigation" className={menuOpen ? 'mobile-menu-open' : ''}>
         {links.map((link) => <a href={link.href} key={link.href} onClick={closeMenu}>{link.label}</a>)}
-        {/* My Orders link visible in mobile menu */}
-        <a href="/my-orders" onClick={closeMenu} className="nav-my-orders-mobile">My Orders</a>
+        <a href="/my-orders" onClick={closeMenu} className="nav-my-orders-mobile">Your Order</a>
+        <a href="/cart" onClick={closeMenu} className="nav-mobile-only">Cart{cartItemCount > 0 ? ` (${cartItemCount})` : ''}</a>
+        <a href={pathname === '/' ? '#services' : '/#services'} onClick={closeMenu} className="nav-mobile-only nav-mobile-book">Book a visit</a>
       </nav>
-      <button className="theme-toggle" onClick={toggleTheme} type="button" aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>{theme === 'dark' ? '☼' : '☾'}</button>
+      <button className="theme-toggle" onClick={toggleTheme} type="button" aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>
+        {theme === 'dark' ? <FiSun aria-hidden="true" /> : <FiMoon aria-hidden="true" />}
+        <span>{theme === 'dark' ? 'Light' : 'Dark'}</span>
+      </button>
       <a className="nav-cta" href={pathname === '/' ? '#services' : '/#services'} onClick={closeMenu}>Book a visit <span aria-hidden="true">↗</span></a>
-      {/* My Orders icon — desktop */}
       <a
         className="cart-nav-link nav-orders-link"
         href="/my-orders"
-        aria-label="My Orders"
-        title="My Orders"
+        aria-label="Your Order"
+        title="Your Order"
         onClick={closeMenu}
       >
-        <FiPackage aria-hidden="true" />
+        <FiClipboard aria-hidden="true" />
+        <span>Your Order</span>
       </a>
       <a className="cart-nav-link" href="/cart" aria-label={`View cart${cartItemCount ? `, ${cartItemCount} items` : ''}`} title="View cart" onClick={closeMenu}>
-        <FiShoppingBag aria-hidden="true" />
+        <FiShoppingCart aria-hidden="true" />
+        <span>Cart</span>
         {cartItemCount > 0 && <span className="cart-nav-badge" aria-label={`${cartItemCount} items in cart`}>{cartItemCount}</span>}
       </a>
       <button className="nav-menu-toggle" onClick={() => setMenuOpen((open) => !open)} type="button" aria-expanded={menuOpen} aria-controls="main-navigation" aria-label={menuOpen ? 'Close navigation menu' : 'Open navigation menu'}>
-        <span aria-hidden="true">{menuOpen ? '×' : '☰'}</span>
+        {menuOpen ? <FiX aria-hidden="true" /> : <FiMenu aria-hidden="true" />}
       </button>
     </header>
   );
