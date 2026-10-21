@@ -9,7 +9,7 @@ import { WhatsAppButton } from './components/WhatsAppButton';
 import { services } from '@/lib/content';
 import { getProducts } from '@/lib/medusa';
 
-export const revalidate = 60; // revalidate every 60 seconds instead of force-dynamic
+export const dynamic = 'force-dynamic';
 
 export default async function Home() {
   const products = await getProducts();
