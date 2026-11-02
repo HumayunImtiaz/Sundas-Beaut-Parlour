@@ -17,7 +17,7 @@ export default function CheckoutPage() {
         <Link className="back-link" href="/cart">← Back to Cart</Link>
         <p className="eyebrow">Final Step</p>
         <h1>Secure<br /><em>checkout.</em></h1>
-        <p className="section-intro">Please complete your details to finalize your orders.</p>
+        <p className="section-intro"> Please complete your details to finalize your order</p>
       </section>
 
       <section className="cart-content section-shell">
