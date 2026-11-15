@@ -5,19 +5,19 @@ import { notFound } from 'next/navigation';
 import { Navbar } from '../../components/Navbar';
 import { ProductDetailOrder } from '../../components/ProductDetail';
 import { WhatsAppButton } from '../../components/WhatsAppButton';
-import { getProductByHandle } from '@/lib/medusa';
+import { getProductBySlug } from '@/lib/catalog';
 
 type ProductPageProps = { params: { slug: string } };
 
 export const revalidate = 60;
 
 export async function generateMetadata({ params }: ProductPageProps): Promise<Metadata> {
-  const product = await getProductByHandle(params.slug);
+  const product = await getProductBySlug(params.slug);
   return { title: product ? `${product.name} | Sundas Beauty Parlour` : 'Product is not found | Sundas Beauty Parlour' };
 }
 
 export default async function ProductDetailPage({ params }: ProductPageProps) {
-  const product = await getProductByHandle(params.slug);
+  const product = await getProductBySlug(params.slug);
   if (!product) notFound();
 
   return (
@@ -31,7 +31,7 @@ export default async function ProductDetailPage({ params }: ProductPageProps) {
             <p className="eyebrow">Home remedy</p>
             <h1>{product.name}</h1>
             <p className="product-detail-description">{product.fullDescription}</p>
-            <ProductDetailOrder variants={product.variants ?? []} />
+            <ProductDetailOrder product={product} />
           </div>
         </div>
       </section>

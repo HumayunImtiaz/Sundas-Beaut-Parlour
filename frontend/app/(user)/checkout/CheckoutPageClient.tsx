@@ -6,12 +6,12 @@ import { CheckoutForm } from './CheckoutForm';
 import { useCart } from '../../providers/CartProvider';
 
 export function CheckoutPageClient() {
-  const { cart, isLoading, error } = useCart();
+  const { cart, isLoading } = useCart();
   const router = useRouter();
 
   useEffect(() => {
-    if (!isLoading && (error || !cart?.items?.length)) router.replace('/cart');
-  }, [cart, error, isLoading, router]);
+    if (!isLoading && !cart?.items.length) router.replace('/cart');
+  }, [cart, isLoading, router]);
 
   if (isLoading) {
     return (

@@ -5,7 +5,7 @@ import { CartItems } from './CartItems';
 import { useCart } from '../../providers/CartProvider';
 
 export function CartPageClient() {
-  const { cart, isLoading, error } = useCart();
+  const { cart, isLoading } = useCart();
 
   if (isLoading) {
     return (
@@ -16,8 +16,6 @@ export function CartPageClient() {
       </div>
     );
   }
-
-  if (error) return <p role="alert" className="cart-error">{error}</p>;
 
   if (!cart?.items?.length) {
     return (
