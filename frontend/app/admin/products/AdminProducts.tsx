@@ -17,6 +17,32 @@ type ProductDraft = {
   imageUrl: string;
 };
 
+type OrderStatus = 'Pending' | 'Confirmed' | 'Delivered' | 'Cancelled';
+
+type AdminOrderItem = {
+  product_id: string;
+  name: string;
+  slug: string;
+  image_url: string | null;
+  quantity: number;
+  unit_price: number;
+};
+
+type AdminOrder = {
+  order_number: number;
+  customer_name: string;
+  phone: string;
+  email: string | null;
+  address: string;
+  city: string;
+  postal_code: string | null;
+  items: AdminOrderItem[];
+  total: number;
+  payment_method: string;
+  status: OrderStatus;
+  created_at: string;
+};
+
 const EMPTY_DRAFT: ProductDraft = {
   name: '',
   slug: '',
@@ -57,6 +83,8 @@ function getErrorMessage(error: unknown): string {
 
 export function AdminProducts() {
   const [products, setProducts] = useState<Product[]>([]);
+  const [orders, setOrders] = useState<AdminOrder[]>([]);
+  const [activeSection, setActiveSection] = useState<'products' | 'orders'>('products');
   const [draft, setDraft] = useState<ProductDraft>(EMPTY_DRAFT);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -91,6 +119,18 @@ export function AdminProducts() {
     })));
   }, []);
 
+  const loadOrders = useCallback(async () => {
+    const supabase = getSupabaseBrowserClient();
+    const { data, error: queryError } = await supabase
+      .from('orders')
+      .select('order_number,customer_name,phone,email,address,city,postal_code,items,total,payment_method,status,created_at')
+      .order('created_at', { ascending: false })
+      .limit(100);
+
+    if (queryError) throw queryError;
+    setOrders((data ?? []) as AdminOrder[]);
+  }, []);
+
   useEffect(() => {
     let active = true;
     if (!isConfigured) {
@@ -121,7 +161,7 @@ export function AdminProducts() {
       setAdminEmail(session.user.email ?? '');
       setIsAuthorized(true);
       try {
-        await loadProducts();
+        await Promise.all([loadProducts(), loadOrders()]);
       } catch (loadError) {
         if (active) setError(getErrorMessage(loadError));
       } finally {
@@ -137,7 +177,7 @@ export function AdminProducts() {
       active = false;
       authListener.subscription.unsubscribe();
     };
-  }, [isConfigured, loadProducts]);
+  }, [isConfigured, loadOrders, loadProducts]);
 
   useEffect(() => {
     if (!imageFile) {
@@ -148,6 +188,14 @@ export function AdminProducts() {
     setPreviewUrl(objectUrl);
     return () => URL.revokeObjectURL(objectUrl);
   }, [imageFile]);
+
+  useEffect(() => {
+    if (!isAuthorized) return;
+    const timer = window.setInterval(() => {
+      void loadOrders().catch((loadError: unknown) => setError(getErrorMessage(loadError)));
+    }, 30_000);
+    return () => window.clearInterval(timer);
+  }, [isAuthorized, loadOrders]);
 
   function resetEditor() {
     setDraft(EMPTY_DRAFT);
@@ -315,6 +363,27 @@ export function AdminProducts() {
     }
   }
 
+  async function updateOrderStatus(orderNumber: number, status: OrderStatus) {
+    setError('');
+    setNotice('');
+    try {
+      const { data, error: updateError } = await getSupabaseBrowserClient()
+        .from('orders')
+        .update({ status })
+        .eq('order_number', orderNumber)
+        .select('order_number')
+        .maybeSingle();
+      if (updateError) throw updateError;
+      if (!data) throw new Error('Order status was not updated. Check that the orders SQL setup is complete.');
+      setOrders((current) => current.map((order) =>
+        order.order_number === orderNumber ? { ...order, status } : order
+      ));
+      setNotice(`Order #${orderNumber} marked ${status.toLowerCase()}.`);
+    } catch (updateError) {
+      setError(getErrorMessage(updateError));
+    }
+  }
+
   async function handleSignOut() {
     const { error: signOutError } = await getSupabaseBrowserClient().auth.signOut();
     if (signOutError) setError(signOutError.message);
@@ -327,7 +396,7 @@ export function AdminProducts() {
         <section className="admin-login-box">
           <p className="eyebrow">Admin setup</p>
           <h1>Almost<br /><em>ready.</em></h1>
-          <p className="admin-login-copy">Add the Supabase project URL, anon key, and admin user ID to Vercel, then redeploy.</p>
+          <p className="admin-login-copy">Add the Supabase project URL, publishable key, and admin user ID to <code>frontend/.env.local</code> for local development, or to your hosting environment before deploying.</p>
           <Link className="admin-back-link" href="/">← Back to website</Link>
         </section>
       </main>
@@ -343,7 +412,10 @@ export function AdminProducts() {
       <aside className="admin-sidebar">
         <Link className="admin-brand" href="/">Sundas<span>Beauty Parlour</span></Link>
         <p className="admin-sidebar-label">Store management</p>
-        <nav className="admin-nav" aria-label="Admin navigation"><a className="active" href="#products">Products</a></nav>
+        <nav className="admin-nav" aria-label="Admin navigation">
+          <a className={activeSection === 'products' ? 'active' : ''} href="#products" onClick={() => setActiveSection('products')}>Products</a>
+          <a className={activeSection === 'orders' ? 'active' : ''} href="#orders" onClick={() => setActiveSection('orders')}>Orders <span className="admin-order-count">{orders.filter((order) => order.status === 'Pending').length}</span></a>
+        </nav>
         <p className="admin-email">{adminEmail}</p>
         <button className="admin-logout" type="button" onClick={handleSignOut}>Sign out <span aria-hidden="true">↗</span></button>
       </aside>
@@ -362,13 +434,14 @@ export function AdminProducts() {
           <div className="admin-stats">
             <article className="admin-stat admin-stat-1"><span>Products</span><strong>{products.length}</strong><small>In your catalog</small></article>
             <article className="admin-stat admin-stat-2"><span>With photos</span><strong>{products.filter((product) => product.image?.url).length}</strong><small>Ready for customers</small></article>
-            <article className="admin-stat admin-stat-3"><span>New products</span><strong>{products.filter((product) => product.isNew).length}</strong><small>Featured as new</small></article>
+            <article className="admin-stat admin-stat-3"><span>Pending orders</span><strong>{orders.filter((order) => order.status === 'Pending').length}</strong><small>{orders.length} total orders</small></article>
           </div>
+
+          {error && <p className="admin-error admin-global-message" role="alert">{error}</p>}
+          {notice && <p className="admin-notice admin-global-message" role="status">{notice}</p>}
 
           <section id="products" className="admin-product-section">
             <div className="admin-section-heading"><div><p className="eyebrow">Catalog</p><h2>Your products</h2></div><Link href="/products" target="_blank" rel="noreferrer">View store ↗</Link></div>
-            {error && <p className="admin-error" role="alert">{error}</p>}
-            {notice && <p className="admin-notice" role="status">{notice}</p>}
             <div className="admin-table-wrap">
               <table className="admin-table">
                 <thead><tr><th>Product</th><th>Price</th><th>Stock</th><th>Status</th><th>Actions</th></tr></thead>
@@ -383,6 +456,44 @@ export function AdminProducts() {
                     </tr>
                   ))}
                   {!products.length && <tr><td colSpan={5}>No products yet. Add your first product below.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section id="orders" className="admin-product-section">
+            <div className="admin-section-heading"><div><p className="eyebrow">Customer requests</p><h2>Orders</h2></div><span className="admin-order-caption">Latest 100 orders</span></div>
+            <div className="admin-table-wrap">
+              <table className="admin-table admin-orders-table">
+                <thead><tr><th>Order</th><th>Customer</th><th>Items</th><th>Total</th><th>Status</th></tr></thead>
+                <tbody>
+                  {orders.map((order) => (
+                    <tr key={order.order_number}>
+                      <td><strong>#{order.order_number}</strong><small>{new Date(order.created_at).toLocaleString('en-PK')}</small></td>
+                      <td>
+                        <strong>{order.customer_name}</strong>
+                        <small><a href={`tel:${order.phone}`}>{order.phone}</a></small>
+                        {order.email && <small>{order.email}</small>}
+                        <small>{[order.address, order.city, order.postal_code].filter(Boolean).join(', ')}</small>
+                      </td>
+                      <td><div className="admin-order-items">{order.items.map((item) => (
+                        <div className="admin-order-item" key={item.product_id}>
+                          {item.image_url
+                            ? <Image src={item.image_url} alt="" width={38} height={38} unoptimized />
+                            : <span className="admin-no-image">No image</span>}
+                          <span><strong>{item.name}</strong><small>{item.quantity} × PKR {item.unit_price.toLocaleString('en-PK')}</small></span>
+                        </div>
+                      ))}</div></td>
+                      <td><strong className="admin-price">PKR {Number(order.total).toLocaleString('en-PK')}</strong><small>{order.payment_method}</small></td>
+                      <td><select className={`status-select status-${order.status.toLowerCase()}`} value={order.status} onChange={(event) => void updateOrderStatus(order.order_number, event.target.value as OrderStatus)} aria-label={`Update status for order ${order.order_number}`}>
+                        <option value="Pending">Pending</option>
+                        <option value="Confirmed">Confirmed</option>
+                        <option value="Delivered">Delivered</option>
+                        <option value="Cancelled">Cancelled</option>
+                      </select></td>
+                    </tr>
+                  ))}
+                  {!orders.length && <tr><td colSpan={5}>No orders yet. Customer orders will appear here after they prepare a WhatsApp order.</td></tr>}
                 </tbody>
               </table>
             </div>

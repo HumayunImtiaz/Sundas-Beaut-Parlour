@@ -4,6 +4,7 @@ import { useState, type FormEvent } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { getWhatsAppLink } from '@/lib/site';
+import { getSupabaseBrowserClient, isSupabaseConfigured } from '@/lib/supabase';
 import { useCart, type CartData } from '../../providers/CartProvider';
 
 type CheckoutValues = {
@@ -19,7 +20,7 @@ type CheckoutValues = {
 type OrderDetails = {
   orderNumber: number;
   date: string;
-  items: { name: string; thumbnail: string | null; quantity: number; price: number }[];
+  items: { name: string; slug: string; thumbnail: string | null; quantity: number; price: number }[];
   total: number;
   paymentMethod: 'Cash on Delivery';
   status: 'Pending';
@@ -48,31 +49,26 @@ function saveOrder(orderNumber: number, phone: string, details: OrderDetails) {
   }
 }
 
-function createOrderMessage(cart: CartData, values: CheckoutValues, orderNumber: number): string {
+function createOrderMessage(details: OrderDetails, values: CheckoutValues): string {
   const origin = window.location.origin;
-  const itemLines = cart.items.map((item, index) => {
-    const name = item.product_title ?? item.title ?? 'Product';
-    const quantity = item.quantity;
-    const price = item.unit_price ?? 0;
-    const productLink = item.product_slug
-      ? `${origin}/products/${encodeURIComponent(item.product_slug)}`
-      : null;
+  const itemLines = details.items.map((item, index) => {
+    const productLink = `${origin}/products/${encodeURIComponent(item.slug)}`;
     const image = item.thumbnail
       ? (item.thumbnail.startsWith('/') ? `${origin}${item.thumbnail}` : item.thumbnail)
       : null;
     return [
-      `${index + 1}. *${name}*`,
-      `   ${quantity} × PKR ${price.toLocaleString('en-PK')} = PKR ${(quantity * price).toLocaleString('en-PK')}`,
+      `${index + 1}. *${item.name}*`,
+      `   ${item.quantity} × PKR ${item.price.toLocaleString('en-PK')} = PKR ${(item.quantity * item.price).toLocaleString('en-PK')}`,
       image ? `   Image: ${image}` : null,
-      productLink ? `   Product/image details: ${productLink}` : null
+      `   Product details: ${productLink}`
     ].filter(Boolean).join('\n');
   });
   const customerName = `${values.firstName.trim()} ${values.lastName.trim()}`.trim();
 
   return [
     '*NEW ORDER — SUNDAS BEAUTY PARLOUR*',
-    `Order No: #${orderNumber}`,
-    `Date: ${new Date().toLocaleString('en-PK')}`,
+    `Order No: #${details.orderNumber}`,
+    `Date: ${new Date(details.date).toLocaleString('en-PK')}`,
     '',
     '*CUSTOMER DETAILS*',
     `Name: ${customerName}`,
@@ -83,7 +79,7 @@ function createOrderMessage(cart: CartData, values: CheckoutValues, orderNumber:
     '*ORDER ITEMS*',
     ...itemLines,
     '',
-    `*TOTAL: PKR ${cart.subtotal.toLocaleString('en-PK')}*`,
+    `*TOTAL: PKR ${details.total.toLocaleString('en-PK')}*`,
     'Payment: Cash on Delivery'
   ].filter((line): line is string => line !== null).join('\n');
 }
@@ -100,15 +96,17 @@ export function CheckoutForm({ cart }: { cart: CartData }) {
     postalCode: ''
   });
   const [error, setError] = useState('');
-  const [order, setOrder] = useState<{ orderNumber: number; whatsappUrl: string } | null>(null);
+  const [savingOrder, setSavingOrder] = useState(false);
+  const [order, setOrder] = useState<{ orderNumber: number; whatsappUrl: string; details: OrderDetails } | null>(null);
 
   function updateValue(field: keyof CheckoutValues, value: string) {
     setValues((current) => ({ ...current, [field]: value }));
     setError('');
   }
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (savingOrder) return;
     if (!values.firstName.trim() || !values.lastName.trim() || !values.phone.trim() ||
       !values.address.trim() || !values.city.trim()) {
       setError('Please enter your name, phone number, and delivery address.');
@@ -123,26 +121,66 @@ export function CheckoutForm({ cart }: { cart: CartData }) {
       return;
     }
 
-    const orderNumber = Date.now();
-    const whatsappUrl = getWhatsAppLink(createOrderMessage(cart, values, orderNumber));
-    setOrder({ orderNumber, whatsappUrl });
+    if (!isSupabaseConfigured()) {
+      setError('Online order saving is not configured yet. Please contact the salon on WhatsApp.');
+      return;
+    }
+
+    setSavingOrder(true);
+    setError('');
+    try {
+      const supabase = getSupabaseBrowserClient();
+      const { data, error: orderError } = await supabase.rpc('place_order', {
+        p_customer_name: `${values.firstName.trim()} ${values.lastName.trim()}`.trim(),
+        p_phone: values.phone.trim(),
+        p_email: values.email.trim() || null,
+        p_address: values.address.trim(),
+        p_city: values.city.trim(),
+        p_postal_code: values.postalCode.trim() || null,
+        p_items: cart.items.map((item) => ({ product_id: item.id, quantity: item.quantity }))
+      });
+
+      if (orderError) throw orderError;
+      const saved = Array.isArray(data) ? data[0] : data;
+      if (
+        !saved ||
+        typeof saved.order_number !== 'number' ||
+        typeof saved.total !== 'number' ||
+        typeof saved.created_at !== 'string' ||
+        !Array.isArray(saved.items)
+      ) {
+        throw new Error('The saved order response was incomplete. Please contact the salon before retrying.');
+      }
+
+      const details: OrderDetails = {
+        orderNumber: saved.order_number,
+        date: saved.created_at,
+        items: saved.items.map((item: { name: string; slug: string; image_url: string | null; quantity: number; unit_price: number }) => ({
+          name: item.name,
+          slug: item.slug,
+          thumbnail: item.image_url,
+          quantity: item.quantity,
+          price: item.unit_price
+        })),
+        total: saved.total,
+        paymentMethod: 'Cash on Delivery',
+        status: 'Pending'
+      };
+      saveOrder(details.orderNumber, values.phone.trim(), details);
+      setOrder({
+        orderNumber: details.orderNumber,
+        whatsappUrl: getWhatsAppLink(createOrderMessage(details, values)),
+        details
+      });
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : 'Could not save your order. Please try again.');
+    } finally {
+      setSavingOrder(false);
+    }
   }
 
   function handleOpenWhatsApp() {
     if (!order) return;
-    saveOrder(order.orderNumber, values.phone.trim(), {
-      orderNumber: order.orderNumber,
-      date: new Date().toISOString(),
-      items: cart.items.map((item) => ({
-        name: item.product_title ?? item.title ?? 'Product',
-        thumbnail: item.thumbnail ?? null,
-        quantity: item.quantity,
-        price: item.unit_price ?? 0
-      })),
-      total: cart.subtotal,
-      paymentMethod: 'Cash on Delivery',
-      status: 'Pending'
-    });
     setCart(null);
   }
 
@@ -183,7 +221,7 @@ export function CheckoutForm({ cart }: { cart: CartData }) {
 
   return (
     <div className="cart-layout relative">
-      <form id="checkout-form" onSubmit={handleSubmit} className="checkout-fields">
+      <form id="checkout-form" onSubmit={(event) => void handleSubmit(event)} className="checkout-fields">
         <div className="order-form-panel">
           <div className="order-form-heading"><h2>Contact</h2><p>We will use these details for your order.</p></div>
           <div className="order-form" style={{ marginTop: '24px' }}>
@@ -244,8 +282,8 @@ export function CheckoutForm({ cart }: { cart: CartData }) {
           <strong style={{ fontSize: '24px' }}>PKR {cart.subtotal.toLocaleString()}</strong>
         </div>
         {error && <p className="cart-error" role="alert" style={{ marginBottom: '16px' }}>{error}</p>}
-        <button className="button button-gold bg-gradient-gold" type="submit" form="checkout-form" style={{ width: '100%', justifyContent: 'center' }}>
-          Prepare WhatsApp Order <span aria-hidden="true">↗</span>
+        <button className="button button-gold bg-gradient-gold" type="submit" form="checkout-form" disabled={savingOrder} style={{ width: '100%', justifyContent: 'center' }}>
+          {savingOrder ? 'Saving order…' : <>Prepare WhatsApp Order <span aria-hidden="true">↗</span></>}
         </button>
       </aside>
     </div>

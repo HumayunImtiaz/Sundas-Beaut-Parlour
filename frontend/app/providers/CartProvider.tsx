@@ -2,21 +2,12 @@
 
 import { createContext, useCallback, useContext, useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 
-export type CartProductData = {
-  thumbnail?: string | null;
-  title?: string;
-};
-
 export type CartItemData = {
   id: string;
   title?: string;
   product_title?: string;
   product_slug?: string;
-  variant_title?: string;
   thumbnail?: string | null;
-  variant?: { product?: CartProductData };
-  product?: CartProductData;
-  variant_id?: string;
   quantity: number;
   unit_price?: number;
 };

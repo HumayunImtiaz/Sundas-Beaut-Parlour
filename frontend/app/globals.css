@@ -112,6 +112,16 @@ h2 { font-size: clamp(2rem, 4vw, 2.5rem); letter-spacing: -.025em; line-height: 
 .admin-cancel { background: none; border: 0; color: var(--color-text-muted); cursor: pointer; font: inherit; font-size: 12px; padding: 10px; }
 .admin-notice { color: #8fc99d; font-size: 13px; margin: 0 0 16px; }
 .admin-primary:disabled, .admin-actions button:disabled { cursor: wait; opacity: .6; }
+.admin-global-message { margin-top: 24px; }
+.admin-order-count { background: rgba(var(--color-gold-rgb),.2); border-radius: 12px; color: var(--color-gold-light); font-size: 10px; margin-left: 5px; padding: 2px 6px; }
+.admin-order-caption { color: var(--color-text-muted); font-size: 11px; }
+.admin-orders-table { min-width: 1180px; }
+.admin-order-items { display: grid; gap: 10px; min-width: 230px; }
+.admin-order-item { align-items: center; display: flex; gap: 10px; }
+.admin-order-item > img, .admin-order-item > .admin-no-image { flex: 0 0 38px; height: 38px; object-fit: cover; width: 38px; }
+.admin-order-item > span:last-child { min-width: 0; }
+.admin-order-item strong { overflow-wrap: anywhere; }
+.admin-orders-table td small a { color: var(--color-gold-light); }
 @media (max-width: 800px) { .admin-editor-grid { grid-template-columns: 1fr; }.admin-editor-full { grid-column: auto; }.admin-product-section { margin-top: 46px; }.admin-section-heading { align-items: start; gap: 16px; } }
 @media (max-width: 800px) { .admin-sidebar { padding: 22px 18px; position: static; width: 100%; }.admin-shell { display: block; }.admin-sidebar-label { margin-top: 28px; }.admin-nav { display: flex; flex-wrap: wrap; }.admin-nav a { padding: 8px 10px; }.admin-logout { border-top: 0; margin-top: 20px; padding: 12px 0 0; }.admin-main { margin-left: 0; padding: 45px 20px 70px; width: 100%; }.admin-page-heading { align-items: start; display: block; margin-bottom: 32px; }.admin-page-heading .admin-primary { margin-top: 25px; }.admin-stats { grid-template-columns: 1fr; }.admin-date { display: block; margin-top: 18px; }.admin-login-box h1 { font-size: 3.4rem; } }
 

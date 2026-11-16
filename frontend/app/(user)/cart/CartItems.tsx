@@ -30,13 +30,13 @@ export function CartItems() {
 
   return <div className="cart-layout">
     <div className="cart-items">{currentItems.map((item) => {
-      const image = item.thumbnail ?? item.variant?.product?.thumbnail ?? item.product?.thumbnail;
+      const image = item.thumbnail;
       const name = item.product_title ?? item.title ?? 'Product';
       return <article className="cart-item" key={item.id}>
         <div className="cart-item-product">
           {image && <div className="cart-item-image"><Image src={image} alt={name} fill sizes="96px" unoptimized /></div>}
           <div>
-            <p className="eyebrow">{item.variant_title ?? 'Product'}</p>
+            <p className="eyebrow">Product</p>
             <h2>{name}</h2>
             <p className="cart-item-variant">PKR {(item.unit_price ?? 0).toLocaleString()} each</p>
           </div>

@@ -26,7 +26,7 @@ export default function AdminLoginPage() {
 
     const adminUserId = getSupabaseAdminUserId();
     if (!isSupabaseConfigured() || !adminUserId) {
-      setError('Admin setup is incomplete. Add the Supabase project URL, anon key, and admin user ID to Vercel.');
+      setError('Admin setup is incomplete. Add the Supabase project URL, publishable key, and admin user ID to frontend/.env.local, then restart the dev server.');
       return;
     }
 
@@ -53,7 +53,7 @@ export default function AdminLoginPage() {
         <section className="admin-login-box">
           <p className="eyebrow">Admin setup</p>
           <h1>Almost<br /><em>ready.</em></h1>
-          <p className="admin-login-copy">Configure Supabase and create your owner account before signing in. Setup steps are in the project README.</p>
+          <p className="admin-login-copy">Configure Supabase and create your owner account before signing in. For local development, set the Supabase variables in <code>frontend/.env.local</code>, then restart the dev server. Full setup steps are in the project README.</p>
           <a className="admin-back-link" href="/">← Back to website</a>
         </section>
       </main>
