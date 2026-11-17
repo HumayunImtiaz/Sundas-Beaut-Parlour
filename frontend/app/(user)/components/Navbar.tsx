@@ -53,9 +53,8 @@ export function Navbar() {
         <a href="/cart" onClick={closeMenu} className="nav-mobile-only">Cart{cartItemCount > 0 ? ` (${cartItemCount})` : ''}</a>
         <a href={pathname === '/' ? '#services' : '/#services'} onClick={closeMenu} className="nav-mobile-only nav-mobile-book">Book a visit</a>
       </nav>
-      <button className="theme-toggle" onClick={toggleTheme} type="button" aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>
+      <button className="theme-toggle" onClick={toggleTheme} type="button" aria-pressed={theme === 'light'} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>
         {theme === 'dark' ? <FiSun aria-hidden="true" /> : <FiMoon aria-hidden="true" />}
-        <span>{theme === 'dark' ? 'Light' : 'Dark'}</span>
       </button>
       <a className="nav-cta" href={pathname === '/' ? '#services' : '/#services'} onClick={closeMenu}>Book a visit <span aria-hidden="true">↗</span></a>
       <a
