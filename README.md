@@ -258,3 +258,4 @@ grant execute on function public.place_order(text, text, text, text, text, text,
 
 Order creation checks current prices, but does not reserve/decrement stock. Confirm the order with the customer before delivery.
 The checkout saves the order when the customer selects **Prepare WhatsApp Order**, before opening WhatsApp. It stays **Pending** until the admin confirms it, so an order may appear even if the customer does not tap Send in WhatsApp.
+If the admin reports `PGRST205` for `public.orders`, this orders SQL has not been applied (or the schema cache has not refreshed). Run the full SQL block above in Supabase's SQL Editor, then refresh the Orders section.

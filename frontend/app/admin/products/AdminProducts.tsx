@@ -4,7 +4,9 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useCallback, useEffect, useState, type ChangeEvent, type FormEvent } from 'react';
 import type { Product } from '@/lib/content';
+import { getErrorMessage as formatErrorMessage } from '@/lib/errors';
 import { getSupabaseAdminUserId, getSupabaseBrowserClient, isSupabaseConfigured } from '@/lib/supabase';
+import { useToast } from '../../providers/ToastProvider';
 
 type ProductDraft = {
   name: string;
@@ -71,29 +73,81 @@ function toDraft(product: Product): ProductDraft {
   };
 }
 
+function slugifyProductName(name: string): string {
+  return name
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 120)
+    .replace(/-+$/g, '');
+}
+
+function isGeneratedProductSlug(slug: string, name: string): boolean {
+  const base = slugifyProductName(name);
+  if (!base) return false;
+  return slug === base || (slug.startsWith(`${base}-`) && /^\d+$/.test(slug.slice(base.length + 1)));
+}
+
+function getUniqueProductSlug(
+  value: string,
+  products: readonly Pick<Product, '_id' | 'slug'>[],
+  editingId: string | null
+): string {
+  const base = slugifyProductName(value);
+  if (!base) return '';
+
+  const existingSlugs = new Set(
+    products.filter((product) => product._id !== editingId).map((product) => product.slug)
+  );
+  if (!existingSlugs.has(base)) return base;
+
+  let suffix = 1;
+  let candidate = base;
+  while (existingSlugs.has(candidate)) {
+    const suffixText = `-${suffix++}`;
+    candidate = `${base.slice(0, 120 - suffixText.length).replace(/-+$/g, '')}${suffixText}`;
+  }
+  return candidate;
+}
+
+function isDuplicateSlugError(error: unknown): boolean {
+  if (!error || typeof error !== 'object' || !('code' in error) || error.code !== '23505') return false;
+  const message = 'message' in error && typeof error.message === 'string' ? error.message : '';
+  const details = 'details' in error && typeof error.details === 'string' ? error.details : '';
+  return /slug/i.test(`${message} ${details}`);
+}
+
 function getStoragePath(imageUrl: string): string | null {
   const markerIndex = imageUrl.indexOf(STORAGE_MARKER);
   if (markerIndex < 0) return null;
   return imageUrl.slice(markerIndex + STORAGE_MARKER.length).split('?')[0];
 }
 
-function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : 'Something went wrong. Please try again.';
+function getOrdersErrorMessage(error: unknown): string {
+  if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'PGRST205') {
+    return 'Orders table is not set up yet. Run the “Orders in the admin panel” SQL from README.md in the Supabase SQL Editor, then refresh orders.';
+  }
+  return `Orders could not be loaded: ${formatErrorMessage(error)}`;
 }
 
 export function AdminProducts() {
+  const { showToast } = useToast();
   const [products, setProducts] = useState<Product[]>([]);
+  const [productsError, setProductsError] = useState('');
   const [orders, setOrders] = useState<AdminOrder[]>([]);
+  const [ordersError, setOrdersError] = useState('');
+  const [ordersLoading, setOrdersLoading] = useState(true);
   const [activeSection, setActiveSection] = useState<'products' | 'orders'>('products');
   const [draft, setDraft] = useState<ProductDraft>(EMPTY_DRAFT);
+  const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState('');
   const [clearImage, setClearImage] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
   const [adminEmail, setAdminEmail] = useState('');
   const [isAuthorized, setIsAuthorized] = useState(false);
   const isConfigured = isSupabaseConfigured() && Boolean(getSupabaseAdminUserId());
@@ -106,6 +160,7 @@ export function AdminProducts() {
       .order('created_at', { ascending: true });
 
     if (queryError) throw queryError;
+    setProductsError('');
     setProducts((data ?? []).map((row) => ({
       _id: row.id as string,
       name: row.name as string,
@@ -120,16 +175,37 @@ export function AdminProducts() {
   }, []);
 
   const loadOrders = useCallback(async () => {
-    const supabase = getSupabaseBrowserClient();
-    const { data, error: queryError } = await supabase
-      .from('orders')
-      .select('order_number,customer_name,phone,email,address,city,postal_code,items,total,payment_method,status,created_at')
-      .order('created_at', { ascending: false })
-      .limit(100);
+    setOrdersLoading(true);
+    setOrdersError('');
+    try {
+      const supabase = getSupabaseBrowserClient();
+      const { data, error: queryError } = await supabase
+        .from('orders')
+        .select('order_number,customer_name,phone,email,address,city,postal_code,items,total,payment_method,status,created_at')
+        .order('created_at', { ascending: false })
+        .limit(100);
 
-    if (queryError) throw queryError;
-    setOrders((data ?? []) as AdminOrder[]);
-  }, []);
+      if (queryError) throw queryError;
+      setOrders((data ?? []) as AdminOrder[]);
+    } catch (loadError) {
+      const message = getOrdersErrorMessage(loadError);
+      setOrdersError(message);
+      showToast(message);
+    } finally {
+      setOrdersLoading(false);
+    }
+  }, [showToast]);
+
+  const refreshProducts = useCallback(async () => {
+    setProductsError('');
+    try {
+      await loadProducts();
+    } catch (loadError) {
+      const message = formatErrorMessage(loadError, 'Could not load products from Supabase.');
+      setProductsError(message);
+      showToast(message);
+    }
+  }, [loadProducts, showToast]);
 
   useEffect(() => {
     let active = true;
@@ -142,7 +218,7 @@ export function AdminProducts() {
     void supabase.auth.getSession().then(async ({ data, error: sessionError }) => {
       if (!active) return;
       if (sessionError) {
-        setError(sessionError.message);
+        showToast(formatErrorMessage(sessionError, 'Could not verify your admin session.'));
         setLoading(false);
         return;
       }
@@ -163,10 +239,18 @@ export function AdminProducts() {
       try {
         await Promise.all([loadProducts(), loadOrders()]);
       } catch (loadError) {
-        if (active) setError(getErrorMessage(loadError));
+        if (active) {
+          const message = formatErrorMessage(loadError, 'Could not load products from Supabase.');
+          setProductsError(message);
+          showToast(message);
+        }
       } finally {
         if (active) setLoading(false);
       }
+    }).catch((sessionError: unknown) => {
+      if (!active) return;
+      showToast(formatErrorMessage(sessionError, 'Could not verify your admin session.'));
+      setLoading(false);
     });
 
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
@@ -177,7 +261,7 @@ export function AdminProducts() {
       active = false;
       authListener.subscription.unsubscribe();
     };
-  }, [isConfigured, loadOrders, loadProducts]);
+  }, [isConfigured, loadOrders, loadProducts, showToast]);
 
   useEffect(() => {
     if (!imageFile) {
@@ -190,48 +274,57 @@ export function AdminProducts() {
   }, [imageFile]);
 
   useEffect(() => {
-    if (!isAuthorized) return;
+    if (!isAuthorized || ordersError) return;
     const timer = window.setInterval(() => {
-      void loadOrders().catch((loadError: unknown) => setError(getErrorMessage(loadError)));
+      void loadOrders();
     }, 30_000);
     return () => window.clearInterval(timer);
-  }, [isAuthorized, loadOrders]);
+  }, [isAuthorized, loadOrders, ordersError]);
 
   function resetEditor() {
     setDraft(EMPTY_DRAFT);
+    setSlugManuallyEdited(false);
     setEditingId(null);
     setImageFile(null);
     setClearImage(false);
-    setError('');
   }
 
   function startEditing(product: Product) {
     setDraft(toDraft(product));
+    setSlugManuallyEdited(!isGeneratedProductSlug(product.slug, product.name));
     setEditingId(product._id);
     setImageFile(null);
     setClearImage(false);
-    setError('');
-    setNotice('');
     document.getElementById('product-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   function updateField(field: keyof ProductDraft, value: string | boolean) {
     setDraft((current) => ({ ...current, [field]: value }));
-    setError('');
-    setNotice('');
+  }
+
+  function updateProductName(name: string) {
+    setDraft((current) => ({
+      ...current,
+      name,
+      ...(slugManuallyEdited ? {} : { slug: getUniqueProductSlug(name, products, editingId) })
+    }));
+  }
+
+  function updateProductSlug(slug: string) {
+    setSlugManuallyEdited(Boolean(slug));
+    updateField('slug', slug);
   }
 
   function handleImageChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0] ?? null;
     event.target.value = '';
-    setError('');
     if (!file) return;
     if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
-      setError('Choose a JPG, PNG, or WebP image.');
+      showToast('Choose a JPG, PNG, or WebP image.');
       return;
     }
     if (file.size > MAX_IMAGE_SIZE) {
-      setError('Image must be 5 MB or smaller.');
+      showToast('Image must be 5 MB or smaller.');
       return;
     }
     setImageFile(file);
@@ -240,20 +333,19 @@ export function AdminProducts() {
 
   async function handleSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setError('');
-    setNotice('');
 
     const name = draft.name.trim();
-    const slug = draft.slug.trim().toLowerCase();
+    let slug = draft.slug.trim().toLowerCase();
     const price = Number(draft.price);
     const stock = Number(draft.stock);
     if (!name || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
-      setError('Enter a product name and a URL slug using lowercase letters, numbers, and hyphens.');
+      showToast('Enter a product name and a URL slug using lowercase letters, numbers, and hyphens.');
       return;
     }
-    if (!Number.isFinite(price) || price < 0 || !Number.isSafeInteger(price) ||
+    if (!draft.price.trim() || !draft.stock.trim() ||
+      !Number.isFinite(price) || price < 0 || !Number.isSafeInteger(price) ||
       !Number.isFinite(stock) || stock < 0 || !Number.isSafeInteger(stock)) {
-      setError('Price and stock must be zero or a positive whole number.');
+      showToast('Price and stock must be zero or a positive whole number.');
       return;
     }
 
@@ -266,6 +358,10 @@ export function AdminProducts() {
       const productId = editingId ?? crypto.randomUUID();
       let imageUrl = clearImage ? null : draft.imageUrl || null;
 
+      const { data: slugRows, error: slugQueryError } = await supabase.from('products').select('id,slug');
+      if (slugQueryError) throw slugQueryError;
+      slug = getUniqueProductSlug(slug, (slugRows ?? []).map((row) => ({ _id: row.id, slug: row.slug })), editingId);
+
       if (imageFile) {
         const safeName = imageFile.name.replace(/[^a-zA-Z0-9._-]/g, '-');
         uploadedPath = `${productId}/${crypto.randomUUID()}-${safeName}`;
@@ -276,18 +372,30 @@ export function AdminProducts() {
         imageUrl = supabase.storage.from('product-images').getPublicUrl(uploadedPath).data.publicUrl;
       }
 
-      const { error: saveError } = await supabase.from('products').upsert({
-        id: productId,
-        name,
-        slug,
-        description: draft.description.trim(),
-        full_description: draft.fullDescription.trim(),
-        price,
-        stock,
-        is_new: draft.isNew,
-        image_url: imageUrl
-      });
-      if (saveError) throw saveError;
+      let saved = false;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const { error: saveError } = await supabase.from('products').upsert({
+          id: productId,
+          name,
+          slug,
+          description: draft.description.trim(),
+          full_description: draft.fullDescription.trim(),
+          price,
+          stock,
+          is_new: draft.isNew,
+          image_url: imageUrl
+        });
+        if (!saveError) {
+          saved = true;
+          break;
+        }
+        if (!isDuplicateSlugError(saveError) || attempt === 2) throw saveError;
+
+        const { data: latestSlugRows, error: refreshError } = await supabase.from('products').select('id,slug');
+        if (refreshError) throw refreshError;
+        slug = getUniqueProductSlug(slug, (latestSlugRows ?? []).map((row) => ({ _id: row.id, slug: row.slug })), editingId);
+      }
+      if (!saved) throw new Error('Could not generate an available product URL. Please try again.');
 
       const savedProduct: Product = {
         _id: productId,
@@ -303,27 +411,44 @@ export function AdminProducts() {
       setProducts((current) => editingId
         ? current.map((product) => product._id === editingId ? savedProduct : product)
         : [...current, savedProduct]);
+      setProductsError('');
 
       const oldImagePath = getStoragePath(previousImageUrl);
       const newImagePath = imageUrl ? getStoragePath(imageUrl) : null;
       if (oldImagePath && oldImagePath !== newImagePath) {
         try {
           const { error: cleanupError } = await supabase.storage.from('product-images').remove([oldImagePath]);
-          if (cleanupError) console.warn('[admin] Could not remove the replaced product image.', cleanupError);
+          if (cleanupError) {
+            console.warn('[admin] Could not remove the replaced product image.', cleanupError);
+            showToast('Product was saved, but its previous image could not be removed from storage.', 'warning');
+          }
         } catch (cleanupError) {
           console.warn('[admin] Could not remove the replaced product image.', cleanupError);
+          showToast('Product was saved, but its previous image could not be removed from storage.', 'warning');
         }
       }
 
       const wasEditing = Boolean(editingId);
       resetEditor();
-      setNotice(wasEditing ? 'Product updated. Store pages may take up to 60 seconds to refresh.' : 'Product added. Store pages may take up to 60 seconds to refresh.');
+      if (slug !== draft.slug.trim().toLowerCase()) {
+        showToast(`Product saved with the unique URL “${slug}”.`, 'success');
+      } else {
+        showToast(wasEditing ? 'Product updated successfully.' : 'Product added successfully.', 'success');
+      }
     } catch (saveError) {
       if (uploadedPath) {
-        const { error: cleanupError } = await getSupabaseBrowserClient().storage.from('product-images').remove([uploadedPath]);
-        if (cleanupError) console.warn('[admin] Could not remove an unused uploaded image.', cleanupError);
+        try {
+          const { error: cleanupError } = await getSupabaseBrowserClient().storage.from('product-images').remove([uploadedPath]);
+          if (cleanupError) {
+            console.warn('[admin] Could not remove an unused uploaded image.', cleanupError);
+            showToast('The uploaded image could not be cleaned up after the save failed.', 'warning');
+          }
+        } catch (cleanupError) {
+          console.warn('[admin] Could not remove an unused uploaded image.', cleanupError);
+          showToast('The uploaded image could not be cleaned up after the save failed.', 'warning');
+        }
       }
-      setError(getErrorMessage(saveError));
+      showToast(formatErrorMessage(saveError, 'Could not save this product.'));
     } finally {
       setSaving(false);
     }
@@ -331,8 +456,6 @@ export function AdminProducts() {
 
   async function deleteProduct(product: Product) {
     if (!window.confirm(`Delete "${product.name}" from the catalog?`)) return;
-    setError('');
-    setNotice('');
     setSaving(true);
 
     try {
@@ -345,27 +468,31 @@ export function AdminProducts() {
       if (imagePath) {
         try {
           const { error: imageError } = await supabase.storage.from('product-images').remove([imagePath]);
-          if (imageError) imageCleanupFailed = true;
+          if (imageError) {
+            imageCleanupFailed = true;
+            console.warn('[admin] Could not remove a deleted product image.', imageError);
+          }
         } catch (imageError) {
           imageCleanupFailed = true;
           console.warn('[admin] Could not remove a deleted product image.', imageError);
         }
       }
       setProducts((current) => current.filter((entry) => entry._id !== product._id));
+      setProductsError('');
       if (editingId === product._id) resetEditor();
-      setNotice(imageCleanupFailed
-        ? 'Product deleted, but its old image could not be removed from storage.'
-        : 'Product deleted. Store pages may take up to 60 seconds to refresh.');
+      if (imageCleanupFailed) {
+        showToast('Product deleted, but its old image could not be removed from storage.', 'warning');
+      } else {
+        showToast('Product deleted successfully.', 'success');
+      }
     } catch (deleteError) {
-      setError(getErrorMessage(deleteError));
+      showToast(formatErrorMessage(deleteError, 'Could not delete this product.'));
     } finally {
       setSaving(false);
     }
   }
 
   async function updateOrderStatus(orderNumber: number, status: OrderStatus) {
-    setError('');
-    setNotice('');
     try {
       const { data, error: updateError } = await getSupabaseBrowserClient()
         .from('orders')
@@ -378,16 +505,23 @@ export function AdminProducts() {
       setOrders((current) => current.map((order) =>
         order.order_number === orderNumber ? { ...order, status } : order
       ));
-      setNotice(`Order #${orderNumber} marked ${status.toLowerCase()}.`);
+      setOrdersError('');
+      showToast(`Order #${orderNumber} marked ${status.toLowerCase()}.`, 'success');
     } catch (updateError) {
-      setError(getErrorMessage(updateError));
+      const message = getOrdersErrorMessage(updateError);
+      setOrdersError(message);
+      showToast(message);
     }
   }
 
   async function handleSignOut() {
-    const { error: signOutError } = await getSupabaseBrowserClient().auth.signOut();
-    if (signOutError) setError(signOutError.message);
-    else window.location.replace('/admin/login');
+    try {
+      const { error: signOutError } = await getSupabaseBrowserClient().auth.signOut();
+      if (signOutError) throw signOutError;
+      window.location.replace('/admin/login');
+    } catch (signOutError) {
+      showToast(formatErrorMessage(signOutError, 'Could not sign out. Please try again.'));
+    }
   }
 
   if (!isConfigured) {
@@ -414,7 +548,7 @@ export function AdminProducts() {
         <p className="admin-sidebar-label">Store management</p>
         <nav className="admin-nav" aria-label="Admin navigation">
           <a className={activeSection === 'products' ? 'active' : ''} href="#products" onClick={() => setActiveSection('products')}>Products</a>
-          <a className={activeSection === 'orders' ? 'active' : ''} href="#orders" onClick={() => setActiveSection('orders')}>Orders <span className="admin-order-count">{orders.filter((order) => order.status === 'Pending').length}</span></a>
+          <a className={activeSection === 'orders' ? 'active' : ''} href="#orders" onClick={() => setActiveSection('orders')}>Orders <span className="admin-order-count">{ordersError ? '!' : orders.filter((order) => order.status === 'Pending').length}</span></a>
         </nav>
         <p className="admin-email">{adminEmail}</p>
         <button className="admin-logout" type="button" onClick={handleSignOut}>Sign out <span aria-hidden="true">↗</span></button>
@@ -434,14 +568,19 @@ export function AdminProducts() {
           <div className="admin-stats">
             <article className="admin-stat admin-stat-1"><span>Products</span><strong>{products.length}</strong><small>In your catalog</small></article>
             <article className="admin-stat admin-stat-2"><span>With photos</span><strong>{products.filter((product) => product.image?.url).length}</strong><small>Ready for customers</small></article>
-            <article className="admin-stat admin-stat-3"><span>Pending orders</span><strong>{orders.filter((order) => order.status === 'Pending').length}</strong><small>{orders.length} total orders</small></article>
+            <article className="admin-stat admin-stat-3"><span>Pending orders</span><strong>{ordersError ? '—' : orders.filter((order) => order.status === 'Pending').length}</strong><small>{ordersError ? 'Orders unavailable' : `${orders.length} total orders`}</small></article>
           </div>
 
-          {error && <p className="admin-error admin-global-message" role="alert">{error}</p>}
-          {notice && <p className="admin-notice admin-global-message" role="status">{notice}</p>}
 
           <section id="products" className="admin-product-section">
-            <div className="admin-section-heading"><div><p className="eyebrow">Catalog</p><h2>Your products</h2></div><Link href="/products" target="_blank" rel="noreferrer">View store ↗</Link></div>
+            <div className="admin-section-heading">
+              <div><p className="eyebrow">Catalog</p><h2>Your products</h2></div>
+              <div className="admin-order-tools">
+                <Link href="/products" target="_blank" rel="noreferrer">View store ↗</Link>
+                <button className="admin-order-refresh" type="button" onClick={() => void refreshProducts()}>Refresh</button>
+              </div>
+            </div>
+            {productsError && <p className="admin-error admin-global-message" role="alert">{productsError}</p>}
             <div className="admin-table-wrap">
               <table className="admin-table">
                 <thead><tr><th>Product</th><th>Price</th><th>Stock</th><th>Status</th><th>Actions</th></tr></thead>
@@ -455,14 +594,23 @@ export function AdminProducts() {
                       <td><div className="admin-actions"><button type="button" onClick={() => startEditing(product)}>Edit</button><button className="danger" type="button" onClick={() => void deleteProduct(product)} disabled={saving}>Delete</button></div></td>
                     </tr>
                   ))}
-                  {!products.length && <tr><td colSpan={5}>No products yet. Add your first product below.</td></tr>}
+                  {!products.length && <tr><td colSpan={5}>{productsError ? 'Products are unavailable until the setup issue above is resolved.' : 'No products yet. Add your first product below.'}</td></tr>}
                 </tbody>
               </table>
             </div>
           </section>
 
           <section id="orders" className="admin-product-section">
-            <div className="admin-section-heading"><div><p className="eyebrow">Customer requests</p><h2>Orders</h2></div><span className="admin-order-caption">Latest 100 orders</span></div>
+            <div className="admin-section-heading">
+              <div><p className="eyebrow">Customer requests</p><h2>Orders</h2></div>
+              <div className="admin-order-tools">
+                <span className="admin-order-caption">Latest 100 orders</span>
+                <button className="admin-order-refresh" type="button" onClick={() => void loadOrders()} disabled={ordersLoading}>
+                  {ordersLoading ? 'Loading…' : 'Refresh'}
+                </button>
+              </div>
+            </div>
+            {ordersError && <p className="admin-error admin-global-message" role="alert">{ordersError}</p>}
             <div className="admin-table-wrap">
               <table className="admin-table admin-orders-table">
                 <thead><tr><th>Order</th><th>Customer</th><th>Items</th><th>Total</th><th>Status</th></tr></thead>
@@ -493,17 +641,17 @@ export function AdminProducts() {
                       </select></td>
                     </tr>
                   ))}
-                  {!orders.length && <tr><td colSpan={5}>No orders yet. Customer orders will appear here after they prepare a WhatsApp order.</td></tr>}
+                  {!orders.length && <tr><td colSpan={5}>{ordersLoading ? 'Loading orders…' : ordersError ? 'Orders are unavailable until the setup issue above is resolved.' : 'No orders yet. Customer orders will appear here after they prepare a WhatsApp order.'}</td></tr>}
                 </tbody>
               </table>
             </div>
           </section>
 
-          <form id="product-editor" className="admin-editor admin-product-editor" onSubmit={handleSave}>
+          <form id="product-editor" className="admin-editor admin-product-editor" noValidate onSubmit={handleSave}>
             <div><p className="eyebrow">{editingId ? 'Update catalog' : 'Grow your catalog'}</p><h2>{editingId ? 'Edit product' : 'Add a product'}</h2></div>
             <div className="admin-editor-grid">
-              <label>Product name<input value={draft.name} onChange={(event) => updateField('name', event.target.value)} required maxLength={120} /></label>
-              <label>URL slug<input value={draft.slug} onChange={(event) => updateField('slug', event.target.value)} required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" maxLength={120} placeholder="product-name" /></label>
+              <label>Product name<input value={draft.name} onChange={(event) => updateProductName(event.target.value)} required maxLength={120} /></label>
+              <label>URL slug<input value={draft.slug} onChange={(event) => updateProductSlug(event.target.value)} required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" maxLength={120} placeholder="product-name" /><small>Generated from the product name. You can edit it manually.</small></label>
               <label>Price (PKR)<input type="number" min="0" step="1" value={draft.price} onChange={(event) => updateField('price', event.target.value)} required /></label>
               <label>Stock quantity<input type="number" min="0" step="1" value={draft.stock} onChange={(event) => updateField('stock', event.target.value)} required /></label>
               <label className="admin-editor-full">Short description<textarea value={draft.description} onChange={(event) => updateField('description', event.target.value)} rows={2} maxLength={240} /></label>

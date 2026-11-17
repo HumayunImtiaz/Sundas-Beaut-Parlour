@@ -1,6 +1,7 @@
 'use client';
 
 import { createContext, useCallback, useContext, useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
+import { useToast } from './ToastProvider';
 
 export type CartItemData = {
   id: string;
@@ -46,6 +47,7 @@ function isCart(value: unknown): value is CartData {
 }
 
 export function CartProvider({ children }: { children: ReactNode }) {
+  const { showToast } = useToast();
   const [cart, setCartState] = useState<CartData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const cartItemCount = cart?.items.reduce((total, item) => total + item.quantity, 0) ?? 0;
@@ -56,14 +58,18 @@ export function CartProvider({ children }: { children: ReactNode }) {
       if (savedCart) {
         const parsed: unknown = JSON.parse(savedCart);
         if (isCart(parsed)) setCartState(parsed);
-        else localStorage.removeItem(CART_STORAGE_KEY);
+        else {
+          localStorage.removeItem(CART_STORAGE_KEY);
+          showToast('Saved cart data was invalid and has been cleared.', 'warning');
+        }
       }
     } catch (error) {
       console.warn('[cart] Could not restore the saved cart from this browser.', error);
+      showToast('Your saved cart could not be restored. You can continue with an empty cart.', 'warning');
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [showToast]);
 
   useEffect(() => {
     if (isLoading) return;
@@ -72,8 +78,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
       else localStorage.removeItem(CART_STORAGE_KEY);
     } catch (error) {
       console.warn('[cart] Could not save the cart in this browser.', error);
+      showToast('Your cart could not be saved in this browser. Changes may be lost when you close the page.', 'warning');
     }
-  }, [cart, isLoading]);
+  }, [cart, isLoading, showToast]);
 
   const setCart = useCallback<Dispatch<SetStateAction<CartData | null>>>((nextCart) => {
     setCartState(nextCart);

@@ -5,6 +5,8 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { getWhatsAppLink } from '@/lib/site';
 import { getSupabaseBrowserClient, isSupabaseConfigured } from '@/lib/supabase';
+import { getErrorMessage } from '@/lib/errors';
+import { useToast } from '../../providers/ToastProvider';
 import { useCart, type CartData } from '../../providers/CartProvider';
 
 type CheckoutValues = {
@@ -28,13 +30,15 @@ type OrderDetails = {
 
 const ORDER_STORAGE_KEY = 'sundas_order_ids';
 
-function saveOrder(orderNumber: number, phone: string, details: OrderDetails) {
+function saveOrder(orderNumber: number, phone: string, details: OrderDetails): string | null {
   let existing: unknown[] = [];
+  let warning = '';
   try {
     const saved: unknown = JSON.parse(localStorage.getItem(ORDER_STORAGE_KEY) ?? '[]');
     if (Array.isArray(saved)) existing = saved;
   } catch (error) {
     console.warn('[checkout] Existing saved orders were not valid JSON.', error);
+    warning = 'Previous saved orders could not be read. This order will still be available in WhatsApp.';
   }
 
   try {
@@ -44,8 +48,10 @@ function saveOrder(orderNumber: number, phone: string, details: OrderDetails) {
         !entry || typeof entry !== 'object' || !('orderId' in entry) || entry.orderId !== String(orderNumber)
       )
     ]));
+    return warning;
   } catch (error) {
     console.warn('[checkout] Could not save the order in this browser.', error);
+    return 'Your order was created, but this browser could not save its local tracking details.';
   }
 }
 
@@ -86,6 +92,7 @@ function createOrderMessage(details: OrderDetails, values: CheckoutValues): stri
 
 export function CheckoutForm({ cart }: { cart: CartData }) {
   const { setCart } = useCart();
+  const { showToast } = useToast();
   const [values, setValues] = useState<CheckoutValues>({
     firstName: '',
     lastName: '',
@@ -95,13 +102,11 @@ export function CheckoutForm({ cart }: { cart: CartData }) {
     city: '',
     postalCode: ''
   });
-  const [error, setError] = useState('');
   const [savingOrder, setSavingOrder] = useState(false);
   const [order, setOrder] = useState<{ orderNumber: number; whatsappUrl: string; details: OrderDetails } | null>(null);
 
   function updateValue(field: keyof CheckoutValues, value: string) {
     setValues((current) => ({ ...current, [field]: value }));
-    setError('');
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -109,25 +114,24 @@ export function CheckoutForm({ cart }: { cart: CartData }) {
     if (savingOrder) return;
     if (!values.firstName.trim() || !values.lastName.trim() || !values.phone.trim() ||
       !values.address.trim() || !values.city.trim()) {
-      setError('Please enter your name, phone number, and delivery address.');
+      showToast('Please enter your first and last name, phone number, delivery address, and city.');
       return;
     }
     if (!/^\+?[\d\s\-()]{7,20}$/.test(values.phone.trim())) {
-      setError('Please enter a valid phone number.');
+      showToast('Please enter a valid phone number.');
       return;
     }
     if (values.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.email.trim())) {
-      setError('Please enter a valid email address.');
+      showToast('Please enter a valid email address.');
       return;
     }
 
     if (!isSupabaseConfigured()) {
-      setError('Online order saving is not configured yet. Please contact the salon on WhatsApp.');
+      showToast('Online order saving is not configured yet. Please contact the salon on WhatsApp.');
       return;
     }
 
     setSavingOrder(true);
-    setError('');
     try {
       const supabase = getSupabaseBrowserClient();
       const { data, error: orderError } = await supabase.rpc('place_order', {
@@ -166,14 +170,15 @@ export function CheckoutForm({ cart }: { cart: CartData }) {
         paymentMethod: 'Cash on Delivery',
         status: 'Pending'
       };
-      saveOrder(details.orderNumber, values.phone.trim(), details);
+      const storageWarning = saveOrder(details.orderNumber, values.phone.trim(), details);
+      if (storageWarning) showToast(storageWarning, 'warning');
       setOrder({
         orderNumber: details.orderNumber,
         whatsappUrl: getWhatsAppLink(createOrderMessage(details, values)),
         details
       });
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : 'Could not save your order. Please try again.');
+      showToast(getErrorMessage(submitError, 'Could not save your order. Please try again.'));
     } finally {
       setSavingOrder(false);
     }
@@ -221,7 +226,7 @@ export function CheckoutForm({ cart }: { cart: CartData }) {
 
   return (
     <div className="cart-layout relative">
-      <form id="checkout-form" onSubmit={(event) => void handleSubmit(event)} className="checkout-fields">
+      <form id="checkout-form" noValidate onSubmit={(event) => void handleSubmit(event)} className="checkout-fields">
         <div className="order-form-panel">
           <div className="order-form-heading"><h2>Contact</h2><p>We will use these details for your order.</p></div>
           <div className="order-form" style={{ marginTop: '24px' }}>
@@ -281,7 +286,6 @@ export function CheckoutForm({ cart }: { cart: CartData }) {
           <span style={{ fontSize: '14px', color: 'var(--color-text-light)' }}>Total</span>
           <strong style={{ fontSize: '24px' }}>PKR {cart.subtotal.toLocaleString()}</strong>
         </div>
-        {error && <p className="cart-error" role="alert" style={{ marginBottom: '16px' }}>{error}</p>}
         <button className="button button-gold bg-gradient-gold" type="submit" form="checkout-form" disabled={savingOrder} style={{ width: '100%', justifyContent: 'center' }}>
           {savingOrder ? 'Saving order…' : <>Prepare WhatsApp Order <span aria-hidden="true">↗</span></>}
         </button>

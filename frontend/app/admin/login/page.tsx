@@ -2,31 +2,43 @@
 
 import { useEffect, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
+import { getErrorMessage } from '@/lib/errors';
 import { getSupabaseAdminUserId, getSupabaseBrowserClient, isSupabaseConfigured } from '@/lib/supabase';
+import { useToast } from '../../providers/ToastProvider';
 
 export default function AdminLoginPage() {
   const router = useRouter();
+  const { showToast } = useToast();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (!isSupabaseConfigured() || !getSupabaseAdminUserId()) return;
 
     const supabase = getSupabaseBrowserClient();
-    void supabase.auth.getSession().then(({ data }) => {
+    void supabase.auth.getSession().then(({ data, error }) => {
+      if (error) throw error;
       if (data.session?.user.id === getSupabaseAdminUserId()) router.replace('/admin');
+    }).catch((sessionError: unknown) => {
+      showToast(getErrorMessage(sessionError, 'Could not verify your admin session.'));
     });
-  }, [router]);
+  }, [router, showToast]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setError('');
 
+    if (!email.trim() || !password) {
+      showToast('Enter both your admin email address and password.');
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      showToast('Enter a valid email address.');
+      return;
+    }
     const adminUserId = getSupabaseAdminUserId();
     if (!isSupabaseConfigured() || !adminUserId) {
-      setError('Admin setup is incomplete. Add the Supabase project URL, publishable key, and admin user ID to frontend/.env.local, then restart the dev server.');
+      showToast('Admin setup is incomplete. Add the Supabase project URL, publishable key, and admin user ID to frontend/.env.local, then restart the dev server.');
       return;
     }
 
@@ -41,7 +53,7 @@ export default function AdminLoginPage() {
       }
       router.replace('/admin');
     } catch (loginError) {
-      setError(loginError instanceof Error ? loginError.message : 'Could not sign in. Please try again.');
+      showToast(getErrorMessage(loginError, 'Could not sign in. Please try again.'));
     } finally {
       setLoading(false);
     }
@@ -66,7 +78,7 @@ export default function AdminLoginPage() {
         <p className="eyebrow">Sundas Beauty Parlour</p>
         <h1>Admin<br /><em>sign in.</em></h1>
         <p className="admin-login-copy">Sign in to manage products, prices, and photos.</p>
-        <form className="admin-form" onSubmit={handleSubmit}>
+        <form className="admin-form" noValidate onSubmit={handleSubmit}>
           <label>
             Email address
             <input type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} required />
@@ -75,7 +87,6 @@ export default function AdminLoginPage() {
             Password
             <input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required />
           </label>
-          {error && <p className="admin-error" role="alert">{error}</p>}
           <button className="admin-primary" type="submit" disabled={loading}>
             {loading ? 'Signing in…' : 'Sign in'} <span aria-hidden="true">↗</span>
           </button>

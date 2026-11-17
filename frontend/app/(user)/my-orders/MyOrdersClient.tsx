@@ -2,6 +2,8 @@
 
 import Image from 'next/image';
 import { FormEvent, useEffect, useState } from 'react';
+import { getErrorMessage } from '@/lib/errors';
+import { useToast } from '../../providers/ToastProvider';
 
 type SavedOrder = {
   orderId: string;
@@ -29,46 +31,41 @@ const LS_ORDER_IDS_KEY = 'sundas_order_ids';
 const LS_IDENTITY_KEY = 'sundas_customer_identity';
 
 function getSavedOrders(): SavedOrder[] {
+  const raw = localStorage.getItem(LS_ORDER_IDS_KEY);
+  if (!raw) return [];
+
+  const saved: unknown = JSON.parse(raw);
+  if (!Array.isArray(saved)) throw new Error('Saved order history has an invalid format.');
+
+  let legacyPhone = '';
   try {
-    const raw = localStorage.getItem(LS_ORDER_IDS_KEY);
-    if (!raw) return [];
-
-    const saved: unknown = JSON.parse(raw);
-    if (!Array.isArray(saved)) return [];
-
-    let legacyPhone = '';
-    try {
-      const identity = JSON.parse(localStorage.getItem(LS_IDENTITY_KEY) ?? '{}') as {
-        phone?: string;
-      };
-      legacyPhone = identity.phone ?? '';
-    } catch {
-      // Ignore the obsolete identity entry; current order records include their own phone.
-    }
-
-    return saved.flatMap((entry): SavedOrder[] => {
-      if (
-        entry &&
-        typeof entry === 'object' &&
-        typeof entry.orderId === 'string' &&
-        typeof entry.phone === 'string'
-      ) {
-        const details = 'details' in entry ? entry.details : undefined;
-        return [{
-          orderId: entry.orderId,
-          phone: entry.phone,
-          ...(isOrder(details) ? { details } : {}),
-        }];
-      }
-      if (typeof entry === 'string' && legacyPhone) {
-        return [{ orderId: entry, phone: legacyPhone }];
-      }
-      return [];
-    });
-  } catch (error) {
-    console.error('[my-orders] Could not read saved orders from this browser.', error);
-    return [];
+    const identity = JSON.parse(localStorage.getItem(LS_IDENTITY_KEY) ?? '{}') as {
+      phone?: string;
+    };
+    legacyPhone = identity.phone ?? '';
+  } catch {
+    // Ignore the obsolete identity entry; current order records include their own phone.
   }
+
+  return saved.flatMap((entry): SavedOrder[] => {
+    if (
+      entry &&
+      typeof entry === 'object' &&
+      typeof entry.orderId === 'string' &&
+      typeof entry.phone === 'string'
+    ) {
+      const details = 'details' in entry ? entry.details : undefined;
+      return [{
+        orderId: entry.orderId,
+        phone: entry.phone,
+        ...(isOrder(details) ? { details } : {}),
+      }];
+    }
+    if (typeof entry === 'string' && legacyPhone) {
+      return [{ orderId: entry, phone: legacyPhone }];
+    }
+    return [];
+  });
 }
 
 function isOrder(value: unknown): value is Order {
@@ -165,32 +162,53 @@ function OrderCard({ order }: { order: Order }) {
 }
 
 export function MyOrdersClient() {
+  const { showToast } = useToast();
   const [orders, setOrders] = useState<Order[]>([]);
   const [trackedOrder, setTrackedOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [orderNumber, setOrderNumber] = useState('');
   const [phone, setPhone] = useState('');
   const [trackingMessage, setTrackingMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    const savedOrders = getSavedOrders();
-    setOrders(savedOrders.flatMap((saved) => saved.details ? [saved.details] : []));
-    setLoading(false);
-  }, []);
+    try {
+      const savedOrders = getSavedOrders();
+      setOrders(savedOrders.flatMap((saved) => saved.details ? [saved.details] : []));
+    } catch (error) {
+      const message = getErrorMessage(error, 'Could not load saved orders from this browser.');
+      setLoadError(message);
+      showToast(message, 'warning');
+    } finally {
+      setLoading(false);
+    }
+  }, [showToast]);
 
   function handleTrackOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setTrackedOrder(null);
     setTrackingMessage(null);
-    const saved = getSavedOrders().find((entry) =>
-      entry.details?.orderNumber === Number(orderNumber.replace(/^#/, '').trim()) &&
-      entry.phone.replace(/\D/g, '') === phone.replace(/\D/g, '')
-    );
-    if (saved?.details) {
-      setTrackedOrder(saved.details);
-      setTrackingMessage('Order found on this browser.');
-    } else {
-      setTrackingMessage('Order not found on this browser. Check the order number and phone, or contact us on WhatsApp.');
+    if (!orderNumber.trim() || !phone.trim()) {
+      showToast('Enter both the order number and phone number to search.');
+      return;
+    }
+    if (!/^\d+$/.test(orderNumber.replace(/^#/, '').trim())) {
+      showToast('Order number must contain digits only.');
+      return;
+    }
+    try {
+      const saved = getSavedOrders().find((entry) =>
+        entry.details?.orderNumber === Number(orderNumber.replace(/^#/, '').trim()) &&
+        entry.phone.replace(/\D/g, '') === phone.replace(/\D/g, '')
+      );
+      if (saved?.details) {
+        setTrackedOrder(saved.details);
+        setTrackingMessage('Order found on this browser.');
+      } else {
+        showToast('Order not found on this browser. Check the order number and phone, or contact us on WhatsApp.', 'warning');
+      }
+    } catch (error) {
+      showToast(getErrorMessage(error, 'Could not search saved orders on this browser.'));
     }
   }
 
@@ -206,7 +224,7 @@ export function MyOrdersClient() {
       <div className="my-orders-track">
         <h2>Track an order</h2>
         <p>Orders are saved only in this browser. For order updates, contact us on WhatsApp.</p>
-        <form className="my-orders-track-form" onSubmit={handleTrackOrder}>
+        <form className="my-orders-track-form" noValidate onSubmit={handleTrackOrder}>
           <label>
             <span>Order number</span>
             <input
@@ -243,6 +261,11 @@ export function MyOrdersClient() {
         <div className="my-orders-loading">
           <span className="spinner" style={{ width: '28px', height: '28px', borderWidth: '3px' }}></span>
           <p>Loading your orders…</p>
+        </div>
+      ) : loadError ? (
+        <div className="my-orders-empty reveal" role="alert">
+          <h2>Could not load saved orders</h2>
+          <p>{loadError}</p>
         </div>
       ) : visibleOrders.length === 0 ? (
         <div className="my-orders-empty reveal">
