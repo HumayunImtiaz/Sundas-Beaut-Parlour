@@ -7,9 +7,9 @@ import { ProductsSection } from './components/ProductsSection';
 import { Services } from './components/Services';
 import { WhatsAppButton } from './components/WhatsAppButton';
 import { services } from '@/lib/content';
-import { getProducts } from '@/lib/medusa';
+import { getProducts } from '@/lib/catalog';
 
-export const dynamic = 'force-dynamic';
+export const revalidate = 60;
 
 export default async function Home() {
   const products = await getProducts();

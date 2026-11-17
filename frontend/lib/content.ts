@@ -1,4 +1,4 @@
-export type ImageAsset = { url: string; publicId?: string };
+export type ImageAsset = { url: string };
 
 export type Service = {
   _id: string;
@@ -7,7 +7,6 @@ export type Service = {
   priceFrom: number;
   priceTo: number;
   image?: ImageAsset;
-  createdAt?: string;
 };
 
 export type Product = {
@@ -20,15 +19,6 @@ export type Product = {
   image?: ImageAsset;
   stock: number;
   isNew: boolean;
-  variants?: ProductVariant[];
-  createdAt?: string;
-};
-
-export type ProductVariant = {
-  id: string;
-  title: string;
-  options: string[];
-  price: number;
 };
 
 export const services: Service[] = [
@@ -49,7 +39,3 @@ export const products: Product[] = [
   { _id: 'product-glow-cleanser', name: 'Daily Glow Cleanser', slug: 'daily-glow-cleanser', description: 'A gentle cleanser for a calm, bright complexion.', fullDescription: 'A daily cleansing ritual that leaves skin feeling comfortable, clean and refreshed without stripping it.', price: 2200, stock: 10, isNew: false },
   { _id: 'product-silk-serum', name: 'Silk Finish Serum', slug: 'silk-finish-serum', description: 'Lightweight shine and smoothness for finished hair.', fullDescription: 'A few drops of this lightweight serum tame flyaways and leave hair with a soft, polished finish.', price: 2400, stock: 10, isNew: false }
 ];
-
-export function getProduct(slug: string) {
-  return products.find((product) => product.slug === slug);
-}

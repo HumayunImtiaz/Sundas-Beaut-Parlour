@@ -25,15 +25,8 @@ type Order = {
   status: 'Pending' | 'Confirmed' | 'Delivered';
 };
 
-type OrdersResponse = {
-  orders?: Order[];
-  trackedOrder?: Order | null;
-  error?: string;
-};
-
 const LS_ORDER_IDS_KEY = 'sundas_order_ids';
 const LS_IDENTITY_KEY = 'sundas_customer_identity';
-const TRACK_ERROR = 'We could not find an order matching those details. Check the order number and phone number, then try again.';
 
 function getSavedOrders(): SavedOrder[] {
   try {
@@ -175,74 +168,29 @@ export function MyOrdersClient() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [trackedOrder, setTrackedOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [orderNumber, setOrderNumber] = useState('');
   const [phone, setPhone] = useState('');
-  const [tracking, setTracking] = useState(false);
   const [trackingMessage, setTrackingMessage] = useState<string | null>(null);
 
   useEffect(() => {
     const savedOrders = getSavedOrders();
-    const savedDetails = savedOrders.flatMap((saved) =>
-      saved.details ? [saved.details] : []
-    );
-    const ordersToFetch = savedOrders.filter((saved) => !saved.details);
-
-    void (async () => {
-      try {
-        const loadedOrders: Order[] = [];
-        for (let index = 0; index < ordersToFetch.length; index += 25) {
-          const response = await fetch('/api/orders', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ orders: ordersToFetch.slice(index, index + 25) }),
-            cache: 'no-store',
-          });
-          const result = (await response.json()) as OrdersResponse;
-          if (!response.ok || result.error) {
-            throw new Error(result.error ?? 'Could not load orders.');
-          }
-          loadedOrders.push(...(result.orders ?? []));
-        }
-        setOrders([...savedDetails, ...loadedOrders]);
-      } catch {
-        setOrders(savedDetails);
-        setLoadError('Orders could not be loaded right now. Please try again later.');
-      } finally {
-        setLoading(false);
-      }
-    })();
+    setOrders(savedOrders.flatMap((saved) => saved.details ? [saved.details] : []));
+    setLoading(false);
   }, []);
 
-  async function handleTrackOrder(event: FormEvent<HTMLFormElement>) {
+  function handleTrackOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setTracking(true);
     setTrackedOrder(null);
     setTrackingMessage(null);
-
-    try {
-      const response = await fetch('/api/orders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          lookup: { orderNumber: orderNumber.trim(), phone: phone.trim() },
-        }),
-        cache: 'no-store',
-      });
-      const result = (await response.json()) as OrdersResponse;
-
-      if (!response.ok) {
-        setTrackingMessage(result.error ?? TRACK_ERROR);
-      } else if (result.trackedOrder) {
-        setTrackedOrder(result.trackedOrder);
-        setTrackingMessage('Order verified.');
-      } else {
-        setTrackingMessage(TRACK_ERROR);
-      }
-    } catch {
-      setTrackingMessage('We could not verify that order right now. Please try again later.');
-    } finally {
-      setTracking(false);
+    const saved = getSavedOrders().find((entry) =>
+      entry.details?.orderNumber === Number(orderNumber.replace(/^#/, '').trim()) &&
+      entry.phone.replace(/\D/g, '') === phone.replace(/\D/g, '')
+    );
+    if (saved?.details) {
+      setTrackedOrder(saved.details);
+      setTrackingMessage('Order found on this browser.');
+    } else {
+      setTrackingMessage('Order not found on this browser. Check the order number and phone, or contact us on WhatsApp.');
     }
   }
 
@@ -257,7 +205,7 @@ export function MyOrdersClient() {
     <>
       <div className="my-orders-track">
         <h2>Track an order</h2>
-        <p>Enter the order number and phone number used at checkout.</p>
+        <p>Orders are saved only in this browser. For order updates, contact us on WhatsApp.</p>
         <form className="my-orders-track-form" onSubmit={handleTrackOrder}>
           <label>
             <span>Order number</span>
@@ -282,9 +230,7 @@ export function MyOrdersClient() {
               required
             />
           </label>
-          <button className="button button-gold bg-gradient-gold" type="submit" disabled={tracking}>
-            {tracking ? 'Checking…' : 'Track order'}
-          </button>
+          <button className="button button-gold bg-gradient-gold" type="submit">Track order</button>
         </form>
         {trackingMessage && (
           <p className="my-orders-track-message" role="status" aria-live="polite">
@@ -297,14 +243,6 @@ export function MyOrdersClient() {
         <div className="my-orders-loading">
           <span className="spinner" style={{ width: '28px', height: '28px', borderWidth: '3px' }}></span>
           <p>Loading your orders…</p>
-        </div>
-      ) : loadError && visibleOrders.length === 0 ? (
-        <div className="my-orders-empty reveal">
-          <h2>Orders unavailable</h2>
-          <p>{loadError}</p>
-          <button className="button button-outline" onClick={() => window.location.reload()}>
-            Try again
-          </button>
         </div>
       ) : visibleOrders.length === 0 ? (
         <div className="my-orders-empty reveal">

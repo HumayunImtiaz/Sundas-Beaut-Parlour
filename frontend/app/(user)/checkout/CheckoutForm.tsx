@@ -1,410 +1,289 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useState, type FormEvent } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { notifyCartUpdated } from '@/lib/cart-events';
+import { getWhatsAppLink } from '@/lib/site';
+import { getSupabaseBrowserClient, isSupabaseConfigured } from '@/lib/supabase';
 import { useCart, type CartData } from '../../providers/CartProvider';
 
-// ─── Field keys & validation ──────────────────────────────────────────────────
-
-const FIELD_KEYS = ['firstName', 'lastName', 'address', 'city', 'postalCode', 'phone', 'email'] as const;
-type FieldKey = (typeof FIELD_KEYS)[number];
-
-type FieldMeta = {
-  label: string;
-  required: boolean;
-  pattern?: RegExp;
-  patternMsg?: string;
+type CheckoutValues = {
+  firstName: string;
+  lastName: string;
+  phone: string;
+  email: string;
+  address: string;
+  city: string;
+  postalCode: string;
 };
 
-const FIELDS: Record<FieldKey, FieldMeta> = {
-  firstName:  { label: 'First name',    required: true },
-  lastName:   { label: 'Last name',     required: true },
-  address:    { label: 'Address',       required: true },
-  city:       { label: 'City',          required: true },
-  postalCode: { label: 'Postal code',   required: true },
-  phone:      { label: 'Phone number',  required: true,  pattern: /^\+?[\d\s\-()]{7,20}$/, patternMsg: 'Enter a valid phone number' },
-  email:      { label: 'Email address', required: true,  pattern: /^[^\s@]+@[^\s@]+\.[^\s@]+$/, patternMsg: 'Enter a valid email address' },
-};
-
-type FormValues = Record<FieldKey, string>;
-type FormErrors = Partial<Record<FieldKey, string>>;
-
-const emptyValues = (): FormValues =>
-  Object.fromEntries(FIELD_KEYS.map(k => [k, ''])) as FormValues;
-
-// ─── localStorage helpers ─────────────────────────────────────────────────────
-
-const LS_ORDER_IDS_KEY = 'sundas_order_ids';
-
-type SavedOrderDetails = {
+type OrderDetails = {
   orderNumber: number;
   date: string;
-  items: {
-    name: string;
-    thumbnail: string | null;
-    quantity: number;
-    price: number;
-  }[];
+  items: { name: string; slug: string; thumbnail: string | null; quantity: number; price: number }[];
   total: number;
   paymentMethod: 'Cash on Delivery';
   status: 'Pending';
 };
 
-function saveOrder(orderId: string, phone: string, details?: SavedOrderDetails) {
+const ORDER_STORAGE_KEY = 'sundas_order_ids';
+
+function saveOrder(orderNumber: number, phone: string, details: OrderDetails) {
+  let existing: unknown[] = [];
   try {
-    let parsed: unknown = [];
-    try {
-      parsed = JSON.parse(localStorage.getItem(LS_ORDER_IDS_KEY) ?? '[]');
-    } catch {
-      console.warn('[checkout] Existing saved orders were not valid JSON.');
-    }
-    const existing = Array.isArray(parsed)
-      ? parsed.filter(
-          (entry): entry is { orderId: string; phone: string } =>
-            Boolean(
-              entry &&
-                typeof entry === 'object' &&
-                typeof entry.orderId === 'string' &&
-                typeof entry.phone === 'string'
-            )
-        )
-      : [];
-    const next = [
-      { orderId, phone, ...(details ? { details } : {}) },
-      ...existing.filter((entry) => entry.orderId !== orderId),
-    ];
-    localStorage.setItem(LS_ORDER_IDS_KEY, JSON.stringify(next));
+    const saved: unknown = JSON.parse(localStorage.getItem(ORDER_STORAGE_KEY) ?? '[]');
+    if (Array.isArray(saved)) existing = saved;
   } catch (error) {
-    console.warn('[checkout] Could not save this order in the browser.', error);
+    console.warn('[checkout] Existing saved orders were not valid JSON.', error);
+  }
+
+  try {
+    localStorage.setItem(ORDER_STORAGE_KEY, JSON.stringify([
+      { orderId: String(orderNumber), phone, details },
+      ...existing.filter((entry) =>
+        !entry || typeof entry !== 'object' || !('orderId' in entry) || entry.orderId !== String(orderNumber)
+      )
+    ]));
+  } catch (error) {
+    console.warn('[checkout] Could not save the order in this browser.', error);
   }
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
+function createOrderMessage(details: OrderDetails, values: CheckoutValues): string {
+  const origin = window.location.origin;
+  const itemLines = details.items.map((item, index) => {
+    const productLink = `${origin}/products/${encodeURIComponent(item.slug)}`;
+    const image = item.thumbnail
+      ? (item.thumbnail.startsWith('/') ? `${origin}${item.thumbnail}` : item.thumbnail)
+      : null;
+    return [
+      `${index + 1}. *${item.name}*`,
+      `   ${item.quantity} × PKR ${item.price.toLocaleString('en-PK')} = PKR ${(item.quantity * item.price).toLocaleString('en-PK')}`,
+      image ? `   Image: ${image}` : null,
+      `   Product details: ${productLink}`
+    ].filter(Boolean).join('\n');
+  });
+  const customerName = `${values.firstName.trim()} ${values.lastName.trim()}`.trim();
+
+  return [
+    '*NEW ORDER — SUNDAS BEAUTY PARLOUR*',
+    `Order No: #${details.orderNumber}`,
+    `Date: ${new Date(details.date).toLocaleString('en-PK')}`,
+    '',
+    '*CUSTOMER DETAILS*',
+    `Name: ${customerName}`,
+    `Phone: ${values.phone.trim()}`,
+    values.email.trim() ? `Email: ${values.email.trim()}` : null,
+    `Address: ${values.address.trim()}, ${values.city.trim()}${values.postalCode.trim() ? `, ${values.postalCode.trim()}` : ''}`,
+    '',
+    '*ORDER ITEMS*',
+    ...itemLines,
+    '',
+    `*TOTAL: PKR ${details.total.toLocaleString('en-PK')}*`,
+    'Payment: Cash on Delivery'
+  ].filter((line): line is string => line !== null).join('\n');
+}
 
 export function CheckoutForm({ cart }: { cart: CartData }) {
   const { setCart } = useCart();
-  const [values, setValues] = useState<FormValues>(emptyValues);
-  const [errors, setErrors] = useState<FormErrors>({});
-  const [loading, setLoading] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
-  const [orderId, setOrderId] = useState<string | null>(null);
-  const [displayId, setDisplayId] = useState<number | null>(null);
+  const [values, setValues] = useState<CheckoutValues>({
+    firstName: '',
+    lastName: '',
+    phone: '',
+    email: '',
+    address: '',
+    city: '',
+    postalCode: ''
+  });
+  const [error, setError] = useState('');
+  const [savingOrder, setSavingOrder] = useState(false);
+  const [order, setOrder] = useState<{ orderNumber: number; whatsappUrl: string; details: OrderDetails } | null>(null);
 
-  const fieldRefs = useRef<Partial<Record<FieldKey, HTMLInputElement | HTMLTextAreaElement | null>>>({});
-
-  // ─── Helpers ────────────────────────────────────────────────────────────────
-
-  function onChange(key: FieldKey, value: string) {
-    setValues(prev => ({ ...prev, [key]: value }));
-    if (errors[key]) {
-      setErrors(prev => {
-        const next = { ...prev };
-        delete next[key];
-        return next;
-      });
-    }
-    if (submitError) setSubmitError(null);
+  function updateValue(field: keyof CheckoutValues, value: string) {
+    setValues((current) => ({ ...current, [field]: value }));
+    setError('');
   }
 
-  function validate(): FormErrors {
-    const errs: FormErrors = {};
-    for (const key of FIELD_KEYS) {
-      const meta = FIELDS[key];
-      const val = values[key].trim();
-      if (meta.required && !val) {
-        errs[key] = 'This field is required';
-      } else if (val && meta.pattern && !meta.pattern.test(val)) {
-        errs[key] = meta.patternMsg ?? 'Invalid format';
-      }
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (savingOrder) return;
+    if (!values.firstName.trim() || !values.lastName.trim() || !values.phone.trim() ||
+      !values.address.trim() || !values.city.trim()) {
+      setError('Please enter your name, phone number, and delivery address.');
+      return;
     }
-    return errs;
-  }
-
-  // ─── Submit ─────────────────────────────────────────────────────────────────
-
-  const handleSubmit = async (e?: React.FormEvent) => {
-    e?.preventDefault();
-
-    const errs = validate();
-    setErrors(errs);
-
-    const firstBadKey = FIELD_KEYS.find(k => errs[k]);
-    if (firstBadKey) {
-      const el = fieldRefs.current[firstBadKey];
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        el.focus({ preventScroll: true });
-      }
+    if (!/^\+?[\d\s\-()]{7,20}$/.test(values.phone.trim())) {
+      setError('Please enter a valid phone number.');
+      return;
+    }
+    if (values.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.email.trim())) {
+      setError('Please enter a valid email address.');
       return;
     }
 
-    setLoading(true);
-    setSubmitError(null);
-
-    try {
-      // 1. Complete the Medusa cart → place the real order
-      //    Send all customer/address details so the API can update the cart
-      //    with email, shipping address, billing address, shipping method,
-      //    and payment session before calling cart.complete().
-      const completeRes = await fetch('/api/checkout/complete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: values.email.trim(),
-          firstName: values.firstName.trim(),
-          lastName: values.lastName.trim(),
-          address: values.address.trim(),
-          city: values.city.trim(),
-          postalCode: values.postalCode.trim(),
-          phone: values.phone.trim(),
-        }),
-      });
-      const completeData = await completeRes.json() as {
-        order?: { id: string; display_id?: number; total?: number };
-        error?: string;
-      };
-
-      if (!completeRes.ok || completeData.error) {
-        setSubmitError(completeData.error ?? 'Order could not be placed. Please try again.');
-        setLoading(false);
-        return;
-      }
-
-      const order = completeData.order!;
-
-      // 2. Clear the cart cookie so the navbar resets
-      await fetch('/api/cart/clear', { method: 'DELETE' });
-      setCart(null);
-
-      // 3. Notify the navbar to reset badge to 0
-      notifyCartUpdated({ itemCount: 0 });
-
-      // 4. Persist order details so /my-orders can render them immediately.
-      if (typeof order.display_id === 'number' && Number.isSafeInteger(order.display_id)) {
-        saveOrder(order.id, values.phone.trim(), {
-          orderNumber: order.display_id,
-          date: new Date().toISOString(),
-          items: (cart.items ?? []).map((item) => ({
-            name: item.product_title ?? item.title ?? item.variant_title ?? 'Product',
-            thumbnail:
-              item.thumbnail ??
-              item.variant?.product?.thumbnail ??
-              item.product?.thumbnail ??
-              null,
-            quantity: item.quantity,
-            price: item.unit_price ?? 0,
-          })),
-          total: order.total ?? cart.subtotal ?? 0,
-          paymentMethod: 'Cash on Delivery',
-          status: 'Pending',
-        });
-      } else {
-        saveOrder(order.id, values.phone.trim());
-        console.error('[checkout] The completed order did not include a display number.');
-      }
-
-      // 5. Show success screen
-      setOrderId(order.id);
-      setDisplayId(order.display_id ?? null);
-      setSuccess(true);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Network error. Please try again.';
-      setSubmitError(msg);
-    } finally {
-      setLoading(false);
+    if (!isSupabaseConfigured()) {
+      setError('Online order saving is not configured yet. Please contact the salon on WhatsApp.');
+      return;
     }
-  };
 
-  // ─── Success state ──────────────────────────────────────────────────────────
+    setSavingOrder(true);
+    setError('');
+    try {
+      const supabase = getSupabaseBrowserClient();
+      const { data, error: orderError } = await supabase.rpc('place_order', {
+        p_customer_name: `${values.firstName.trim()} ${values.lastName.trim()}`.trim(),
+        p_phone: values.phone.trim(),
+        p_email: values.email.trim() || null,
+        p_address: values.address.trim(),
+        p_city: values.city.trim(),
+        p_postal_code: values.postalCode.trim() || null,
+        p_items: cart.items.map((item) => ({ product_id: item.id, quantity: item.quantity }))
+      });
 
-  if (success) {
+      if (orderError) throw orderError;
+      const saved = Array.isArray(data) ? data[0] : data;
+      if (
+        !saved ||
+        typeof saved.order_number !== 'number' ||
+        typeof saved.total !== 'number' ||
+        typeof saved.created_at !== 'string' ||
+        !Array.isArray(saved.items)
+      ) {
+        throw new Error('The saved order response was incomplete. Please contact the salon before retrying.');
+      }
+
+      const details: OrderDetails = {
+        orderNumber: saved.order_number,
+        date: saved.created_at,
+        items: saved.items.map((item: { name: string; slug: string; image_url: string | null; quantity: number; unit_price: number }) => ({
+          name: item.name,
+          slug: item.slug,
+          thumbnail: item.image_url,
+          quantity: item.quantity,
+          price: item.unit_price
+        })),
+        total: saved.total,
+        paymentMethod: 'Cash on Delivery',
+        status: 'Pending'
+      };
+      saveOrder(details.orderNumber, values.phone.trim(), details);
+      setOrder({
+        orderNumber: details.orderNumber,
+        whatsappUrl: getWhatsAppLink(createOrderMessage(details, values)),
+        details
+      });
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : 'Could not save your order. Please try again.');
+    } finally {
+      setSavingOrder(false);
+    }
+  }
+
+  function handleOpenWhatsApp() {
+    if (!order) return;
+    setCart(null);
+  }
+
+  if (order) {
     return (
       <div className="order-success reveal">
         <span aria-hidden="true">✔</span>
-        <h2>Order Confirmed.</h2>
-        {displayId && (
-          <p style={{ color: 'var(--color-gold)', fontFamily: 'var(--font-body)', fontSize: '13px', marginBottom: '4px' }}>
-            Order #{displayId}
-          </p>
-        )}
-        <p>Thank you for shopping with Sundas Beauty Parlour. We will process your order soon.</p>
+        <h2>Order #{order.orderNumber} is ready.</h2>
+        <p>Send the order details to Sundas Beauty Parlour on WhatsApp to confirm your order.</p>
         <div style={{ marginTop: '28px', display: 'flex', gap: '14px', flexWrap: 'wrap' }}>
-          <Link className="button button-gold bg-gradient-gold" href="/my-orders">
-            Track My Order <span aria-hidden="true">→</span>
-          </Link>
-          <Link className="button button-outline" href="/products">
-            Continue Shopping <span aria-hidden="true">↗</span>
-          </Link>
+          <a className="button button-gold bg-gradient-gold" href={order.whatsappUrl} target="_blank" rel="noreferrer" onClick={handleOpenWhatsApp}>
+            Send order on WhatsApp <span aria-hidden="true">↗</span>
+          </a>
+          <Link className="button button-outline" href="/products">Continue Shopping <span aria-hidden="true">↗</span></Link>
         </div>
-        {orderId && (
-          <p style={{ color: 'var(--color-text-muted)', fontFamily: 'var(--font-body)', fontSize: '11px', marginTop: '20px' }}>
-            Order ID: <code style={{ color: 'var(--color-gold-light)' }}>{orderId}</code>
-          </p>
-        )}
+        <p style={{ color: 'var(--color-text-muted)', fontFamily: 'var(--font-body)', fontSize: '12px', marginTop: '20px' }}>
+          WhatsApp opens with your order details. Tap Send there to place the order.
+        </p>
       </div>
     );
   }
 
-  // ─── Reusable field renderer ────────────────────────────────────────────────
-
-  function renderInput(key: FieldKey, type: 'text' | 'email' | 'tel' = 'text', placeholder?: string) {
-    const meta = FIELDS[key];
-    const hasError = Boolean(errors[key]);
+  function renderInput(field: keyof CheckoutValues, label: string, type = 'text', placeholder?: string) {
+    const required = ['firstName', 'lastName', 'phone', 'address', 'city'].includes(field);
     return (
       <label>
-        {meta.label}{meta.required && <span className="field-required"> *</span>}
+        {label}{required && <span className="field-required"> *</span>}
         <input
-          ref={el => { fieldRefs.current[key] = el; }}
           type={type}
-          value={values[key]}
-          onChange={e => onChange(key, e.target.value)}
+          value={values[field]}
+          onChange={(event) => updateValue(field, event.target.value)}
           placeholder={placeholder}
-          aria-invalid={hasError}
-          aria-describedby={hasError ? `err-${key}` : undefined}
+          required={required}
         />
-        {hasError && <small id={`err-${key}`} role="alert">{errors[key]}</small>}
       </label>
     );
   }
-
-  function renderTextarea(key: FieldKey, rows: number, placeholder?: string) {
-    const meta = FIELDS[key];
-    const hasError = Boolean(errors[key]);
-    return (
-      <label>
-        {meta.label}{meta.required && <span className="field-required"> *</span>}
-        <textarea
-          ref={el => { fieldRefs.current[key] = el; }}
-          rows={rows}
-          value={values[key]}
-          onChange={e => onChange(key, e.target.value)}
-          placeholder={placeholder}
-          aria-invalid={hasError}
-          aria-describedby={hasError ? `err-${key}` : undefined}
-        />
-        {hasError && <small id={`err-${key}`} role="alert">{errors[key]}</small>}
-      </label>
-    );
-  }
-
-  // ─── Render ─────────────────────────────────────────────────────────────────
 
   return (
     <div className="cart-layout relative">
-      <form onSubmit={handleSubmit} className="checkout-fields" noValidate>
+      <form id="checkout-form" onSubmit={(event) => void handleSubmit(event)} className="checkout-fields">
         <div className="order-form-panel">
-          <div className="order-form-heading">
-            <h2>Contact</h2>
-            <p>Will be used for order updates</p>
-          </div>
+          <div className="order-form-heading"><h2>Contact</h2><p>We will use these details for your order.</p></div>
           <div className="order-form" style={{ marginTop: '24px' }}>
-            {renderInput('email', 'email', 'your@email.com')}
-            {renderInput('phone', 'tel', '+92 3XX XXXXXXX')}
+            {renderInput('phone', 'Phone number', 'tel', '+92 3XX XXXXXXX')}
+            {renderInput('email', 'Email address (optional)', 'email', 'your@email.com')}
           </div>
         </div>
 
         <div className="order-form-panel">
-          <div className="order-form-heading">
-            <h2>Shipping Area</h2>
-            <p>Where should we send your order?</p>
-          </div>
+          <div className="order-form-heading"><h2>Delivery address</h2><p>Where should we send your order?</p></div>
           <div className="order-form" style={{ marginTop: '24px' }}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '18px' }}>
-              {renderInput('firstName', 'text', 'First name')}
-              {renderInput('lastName', 'text', 'Last name')}
+              {renderInput('firstName', 'First name')}
+              {renderInput('lastName', 'Last name')}
             </div>
-            {renderTextarea('address', 2, 'Street address, apartment, suite, etc.')}
+            <label>
+              Address<span className="field-required"> *</span>
+              <textarea rows={2} value={values.address} onChange={(event) => updateValue('address', event.target.value)} placeholder="Street address, apartment, suite, etc." required />
+            </label>
             <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '18px' }}>
-              {renderInput('city', 'text', 'City')}
-              {renderInput('postalCode', 'text', 'Postal code')}
+              {renderInput('city', 'City')}
+              {renderInput('postalCode', 'Postal code (optional)')}
             </div>
           </div>
         </div>
 
         <div className="order-form-panel">
-          <div className="order-form-heading">
-            <h2>Payment Mode</h2>
-            <p>Payment is collected when your order arrives.</p>
-          </div>
+          <div className="order-form-heading"><h2>Payment mode</h2><p>Payment is collected when your order arrives.</p></div>
           <div className="order-form" style={{ marginTop: '24px' }}>
-            <div className="payment-label">
-              <span>Selected Method</span>
-              <strong>Cash on Delivery (COD)</strong>
-            </div>
-            <p style={{ color: 'var(--color-text-muted)', fontSize: '13px', margin: '4px 0 0 12px' }}>
-              Pay with cash upon delivery.
-            </p>
+            <div className="payment-label"><span>Selected method</span><strong>Cash on Delivery (COD)</strong></div>
           </div>
         </div>
       </form>
 
       <aside className="cart-summary relative" style={{ alignSelf: 'start' }}>
-        <p className="eyebrow">Order Summary</p>
-        
+        <p className="eyebrow">Order summary</p>
         <div style={{ display: 'grid', gap: '12px', marginBottom: '24px' }}>
-          {cart.items?.map(item => (
+          {cart.items.map((item) => (
             <div key={item.id} style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-               <div className="cart-item-image" style={{ flex: '0 0 48px', width: '48px', height: '48px', position: 'relative', overflow: 'hidden' }}>
-                 {(item.thumbnail || item.variant?.product?.thumbnail || item.product?.thumbnail) && (
-                    <Image 
-                     src={(item.thumbnail || item.variant?.product?.thumbnail || item.product?.thumbnail) as string} 
-                     alt={item.product_title || item.title || 'Product'} 
-                     fill 
-                     sizes="48px"
-                     style={{ objectFit: 'cover' }}
-                   />
-                 )}
-               </div>
-               <div style={{ flex: '1', minWidth: 0 }}>
-                 <p style={{ margin: 0, fontSize: '13px', fontWeight: 600, color: 'var(--color-text-light)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                   {item.product_title || item.title}
-                 </p>
-                 <p style={{ margin: 0, fontSize: '11px', color: 'var(--color-text-muted)' }}>
-                   Qty: {item.quantity}
-                 </p>
-               </div>
-               <div style={{ textAlign: 'right', fontSize: '13px', color: 'var(--color-text-light)' }}>
-                 PKR {((item.unit_price || 0) * item.quantity).toLocaleString()}
-               </div>
+              <div className="cart-item-image" style={{ flex: '0 0 48px', width: '48px', height: '48px', position: 'relative', overflow: 'hidden' }}>
+                {item.thumbnail && <Image src={item.thumbnail} alt={item.product_title ?? item.title ?? 'Product'} fill sizes="48px" unoptimized style={{ objectFit: 'cover' }} />}
+              </div>
+              <div style={{ flex: '1', minWidth: 0 }}>
+                <p style={{ margin: 0, fontSize: '13px', fontWeight: 600, color: 'var(--color-text-light)' }}>{item.product_title ?? item.title}</p>
+                <p style={{ margin: 0, fontSize: '11px', color: 'var(--color-text-muted)' }}>Qty: {item.quantity}</p>
+              </div>
+              <div style={{ textAlign: 'right', fontSize: '13px', color: 'var(--color-text-light)' }}>
+                PKR {((item.unit_price ?? 0) * item.quantity).toLocaleString()}
+              </div>
             </div>
           ))}
         </div>
-
         <div style={{ borderTop: '1px solid rgba(212,175,55,0.2)', margin: '18px 0', paddingTop: '18px' }}>
-          <div>
-            <span>Subtotal</span>
-            <strong>PKR {(cart.subtotal ?? 0).toLocaleString()}</strong>
-          </div>
-          <div style={{ marginTop: '12px' }}>
-            <span>Shipping</span>
-            <strong>Calculated at next step</strong>
-          </div>
+          <div><span>Delivery</span><strong>Confirmed on WhatsApp</strong></div>
         </div>
-        
         <div style={{ borderTop: '1px solid var(--color-gold)', paddingTop: '18px', marginTop: '18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '28px' }}>
           <span style={{ fontSize: '14px', color: 'var(--color-text-light)' }}>Total</span>
-          <strong style={{ fontSize: '24px' }}>PKR {(cart.subtotal ?? 0).toLocaleString()}</strong>
+          <strong style={{ fontSize: '24px' }}>PKR {cart.subtotal.toLocaleString()}</strong>
         </div>
-
-        {submitError && (
-          <p className="cart-error" role="alert" style={{ marginBottom: '16px' }}>{submitError}</p>
-        )}
-
-        <button 
-          className="button button-gold bg-gradient-gold" 
-          type="button" 
-          onClick={() => void handleSubmit()} 
-          disabled={loading}
-          style={{ width: '100%', justifyContent: 'center' }}
-        >
-          {loading ? (
-            <span className="spinner"></span>
-          ) : (
-            <>Complete Order <span aria-hidden="true">✔</span></>
-          )}
+        {error && <p className="cart-error" role="alert" style={{ marginBottom: '16px' }}>{error}</p>}
+        <button className="button button-gold bg-gradient-gold" type="submit" form="checkout-form" disabled={savingOrder} style={{ width: '100%', justifyContent: 'center' }}>
+          {savingOrder ? 'Saving order…' : <>Prepare WhatsApp Order <span aria-hidden="true">↗</span></>}
         </button>
       </aside>
     </div>
