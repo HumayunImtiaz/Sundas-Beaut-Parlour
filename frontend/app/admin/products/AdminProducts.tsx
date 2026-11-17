@@ -71,6 +71,17 @@ function toDraft(product: Product): ProductDraft {
   };
 }
 
+function slugifyProductName(name: string): string {
+  return name
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 120)
+    .replace(/-+$/g, '');
+}
+
 function getStoragePath(imageUrl: string): string | null {
   const markerIndex = imageUrl.indexOf(STORAGE_MARKER);
   if (markerIndex < 0) return null;
@@ -81,11 +92,21 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Something went wrong. Please try again.';
 }
 
+function getOrdersErrorMessage(error: unknown): string {
+  if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'PGRST205') {
+    return 'Orders table is not set up yet. Run the “Orders in the admin panel” SQL from README.md in the Supabase SQL Editor, then refresh orders.';
+  }
+  return `Orders could not be loaded: ${getErrorMessage(error)}`;
+}
+
 export function AdminProducts() {
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<AdminOrder[]>([]);
+  const [ordersError, setOrdersError] = useState('');
+  const [ordersLoading, setOrdersLoading] = useState(true);
   const [activeSection, setActiveSection] = useState<'products' | 'orders'>('products');
   const [draft, setDraft] = useState<ProductDraft>(EMPTY_DRAFT);
+  const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState('');
@@ -120,15 +141,23 @@ export function AdminProducts() {
   }, []);
 
   const loadOrders = useCallback(async () => {
-    const supabase = getSupabaseBrowserClient();
-    const { data, error: queryError } = await supabase
-      .from('orders')
-      .select('order_number,customer_name,phone,email,address,city,postal_code,items,total,payment_method,status,created_at')
-      .order('created_at', { ascending: false })
-      .limit(100);
+    setOrdersLoading(true);
+    setOrdersError('');
+    try {
+      const supabase = getSupabaseBrowserClient();
+      const { data, error: queryError } = await supabase
+        .from('orders')
+        .select('order_number,customer_name,phone,email,address,city,postal_code,items,total,payment_method,status,created_at')
+        .order('created_at', { ascending: false })
+        .limit(100);
 
-    if (queryError) throw queryError;
-    setOrders((data ?? []) as AdminOrder[]);
+      if (queryError) throw queryError;
+      setOrders((data ?? []) as AdminOrder[]);
+    } catch (loadError) {
+      setOrdersError(getOrdersErrorMessage(loadError));
+    } finally {
+      setOrdersLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -190,15 +219,16 @@ export function AdminProducts() {
   }, [imageFile]);
 
   useEffect(() => {
-    if (!isAuthorized) return;
+    if (!isAuthorized || ordersError) return;
     const timer = window.setInterval(() => {
-      void loadOrders().catch((loadError: unknown) => setError(getErrorMessage(loadError)));
+      void loadOrders();
     }, 30_000);
     return () => window.clearInterval(timer);
-  }, [isAuthorized, loadOrders]);
+  }, [isAuthorized, loadOrders, ordersError]);
 
   function resetEditor() {
     setDraft(EMPTY_DRAFT);
+    setSlugManuallyEdited(false);
     setEditingId(null);
     setImageFile(null);
     setClearImage(false);
@@ -207,6 +237,7 @@ export function AdminProducts() {
 
   function startEditing(product: Product) {
     setDraft(toDraft(product));
+    setSlugManuallyEdited(product.slug !== slugifyProductName(product.name));
     setEditingId(product._id);
     setImageFile(null);
     setClearImage(false);
@@ -219,6 +250,21 @@ export function AdminProducts() {
     setDraft((current) => ({ ...current, [field]: value }));
     setError('');
     setNotice('');
+  }
+
+  function updateProductName(name: string) {
+    setDraft((current) => ({
+      ...current,
+      name,
+      ...(slugManuallyEdited ? {} : { slug: slugifyProductName(name) })
+    }));
+    setError('');
+    setNotice('');
+  }
+
+  function updateProductSlug(slug: string) {
+    setSlugManuallyEdited(Boolean(slug));
+    updateField('slug', slug);
   }
 
   function handleImageChange(event: ChangeEvent<HTMLInputElement>) {
@@ -378,9 +424,10 @@ export function AdminProducts() {
       setOrders((current) => current.map((order) =>
         order.order_number === orderNumber ? { ...order, status } : order
       ));
+      setOrdersError('');
       setNotice(`Order #${orderNumber} marked ${status.toLowerCase()}.`);
     } catch (updateError) {
-      setError(getErrorMessage(updateError));
+      setOrdersError(getOrdersErrorMessage(updateError));
     }
   }
 
@@ -414,7 +461,7 @@ export function AdminProducts() {
         <p className="admin-sidebar-label">Store management</p>
         <nav className="admin-nav" aria-label="Admin navigation">
           <a className={activeSection === 'products' ? 'active' : ''} href="#products" onClick={() => setActiveSection('products')}>Products</a>
-          <a className={activeSection === 'orders' ? 'active' : ''} href="#orders" onClick={() => setActiveSection('orders')}>Orders <span className="admin-order-count">{orders.filter((order) => order.status === 'Pending').length}</span></a>
+          <a className={activeSection === 'orders' ? 'active' : ''} href="#orders" onClick={() => setActiveSection('orders')}>Orders <span className="admin-order-count">{ordersError ? '!' : orders.filter((order) => order.status === 'Pending').length}</span></a>
         </nav>
         <p className="admin-email">{adminEmail}</p>
         <button className="admin-logout" type="button" onClick={handleSignOut}>Sign out <span aria-hidden="true">↗</span></button>
@@ -434,7 +481,7 @@ export function AdminProducts() {
           <div className="admin-stats">
             <article className="admin-stat admin-stat-1"><span>Products</span><strong>{products.length}</strong><small>In your catalog</small></article>
             <article className="admin-stat admin-stat-2"><span>With photos</span><strong>{products.filter((product) => product.image?.url).length}</strong><small>Ready for customers</small></article>
-            <article className="admin-stat admin-stat-3"><span>Pending orders</span><strong>{orders.filter((order) => order.status === 'Pending').length}</strong><small>{orders.length} total orders</small></article>
+            <article className="admin-stat admin-stat-3"><span>Pending orders</span><strong>{ordersError ? '—' : orders.filter((order) => order.status === 'Pending').length}</strong><small>{ordersError ? 'Orders unavailable' : `${orders.length} total orders`}</small></article>
           </div>
 
           {error && <p className="admin-error admin-global-message" role="alert">{error}</p>}
@@ -462,7 +509,16 @@ export function AdminProducts() {
           </section>
 
           <section id="orders" className="admin-product-section">
-            <div className="admin-section-heading"><div><p className="eyebrow">Customer requests</p><h2>Orders</h2></div><span className="admin-order-caption">Latest 100 orders</span></div>
+            <div className="admin-section-heading">
+              <div><p className="eyebrow">Customer requests</p><h2>Orders</h2></div>
+              <div className="admin-order-tools">
+                <span className="admin-order-caption">Latest 100 orders</span>
+                <button className="admin-order-refresh" type="button" onClick={() => void loadOrders()} disabled={ordersLoading}>
+                  {ordersLoading ? 'Loading…' : 'Refresh'}
+                </button>
+              </div>
+            </div>
+            {ordersError && <p className="admin-error admin-global-message" role="alert">{ordersError}</p>}
             <div className="admin-table-wrap">
               <table className="admin-table admin-orders-table">
                 <thead><tr><th>Order</th><th>Customer</th><th>Items</th><th>Total</th><th>Status</th></tr></thead>
@@ -493,7 +549,7 @@ export function AdminProducts() {
                       </select></td>
                     </tr>
                   ))}
-                  {!orders.length && <tr><td colSpan={5}>No orders yet. Customer orders will appear here after they prepare a WhatsApp order.</td></tr>}
+                  {!orders.length && <tr><td colSpan={5}>{ordersLoading ? 'Loading orders…' : ordersError ? 'Orders are unavailable until the setup issue above is resolved.' : 'No orders yet. Customer orders will appear here after they prepare a WhatsApp order.'}</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -502,8 +558,8 @@ export function AdminProducts() {
           <form id="product-editor" className="admin-editor admin-product-editor" onSubmit={handleSave}>
             <div><p className="eyebrow">{editingId ? 'Update catalog' : 'Grow your catalog'}</p><h2>{editingId ? 'Edit product' : 'Add a product'}</h2></div>
             <div className="admin-editor-grid">
-              <label>Product name<input value={draft.name} onChange={(event) => updateField('name', event.target.value)} required maxLength={120} /></label>
-              <label>URL slug<input value={draft.slug} onChange={(event) => updateField('slug', event.target.value)} required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" maxLength={120} placeholder="product-name" /></label>
+              <label>Product name<input value={draft.name} onChange={(event) => updateProductName(event.target.value)} required maxLength={120} /></label>
+              <label>URL slug<input value={draft.slug} onChange={(event) => updateProductSlug(event.target.value)} required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" maxLength={120} placeholder="product-name" /><small>Generated from the product name. You can edit it manually.</small></label>
               <label>Price (PKR)<input type="number" min="0" step="1" value={draft.price} onChange={(event) => updateField('price', event.target.value)} required /></label>
               <label>Stock quantity<input type="number" min="0" step="1" value={draft.stock} onChange={(event) => updateField('stock', event.target.value)} required /></label>
               <label className="admin-editor-full">Short description<textarea value={draft.description} onChange={(event) => updateField('description', event.target.value)} rows={2} maxLength={240} /></label>

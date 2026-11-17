@@ -115,6 +115,9 @@ h2 { font-size: clamp(2rem, 4vw, 2.5rem); letter-spacing: -.025em; line-height: 
 .admin-global-message { margin-top: 24px; }
 .admin-order-count { background: rgba(var(--color-gold-rgb),.2); border-radius: 12px; color: var(--color-gold-light); font-size: 10px; margin-left: 5px; padding: 2px 6px; }
 .admin-order-caption { color: var(--color-text-muted); font-size: 11px; }
+.admin-order-tools { align-items: center; display: flex; gap: 16px; }
+.admin-order-refresh { background: none; border: 0; color: var(--color-gold-light); cursor: pointer; font: inherit; font-size: 11px; padding: 8px; }
+.admin-order-refresh:disabled { cursor: wait; opacity: .6; }
 .admin-orders-table { min-width: 1180px; }
 .admin-order-items { display: grid; gap: 10px; min-width: 230px; }
 .admin-order-item { align-items: center; display: flex; gap: 10px; }
