@@ -1,7 +1,10 @@
+const address =
+  'Dastgir Colony, Street No. 1, House No. 1, Rahim Yar Khan, Punjab, Pakistan';
 const mapUrl =
-  'https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d353.4183838330021!2d70.30512852945697!3d28.410623680199492!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x39375d0050133333%3A0x9cfee07d51c03bfe!2sSundas%20parlor!5e0!3m2!1sen!2s!4v1792760065122!5m2!1sen!2s';
+  process.env.NEXT_PUBLIC_MAP_EMBED_URL ||
+  `https://www.google.com/maps?q=${encodeURIComponent(`Sundas Beauty Parlour, ${address}`)}&output=embed`;
 const directionsUrl =
-  'https://www.google.com/maps/dir/?api=1&destination=28.410623680199492%2C70.30512852945697';
+  `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`Sundas Beauty Parlour, ${address}`)}`;
 
 export function Location() {
   return (
@@ -17,6 +20,8 @@ export function Location() {
           <p>Take a little time for yourself in our calm, light-filled studio.</p>
           <div className="address">
             <strong>Sundas Beauty Parlour</strong>
+            <span>Dastgir Colony</span>
+            <span>Street No. 1, House No. 1</span>
             <span>Rahim Yar Khan, Punjab, Pakistan</span>
             <span>Mon — Sat · 10:00 — 20:00</span>
           </div>
